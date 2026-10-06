@@ -57,7 +57,9 @@ HELP = {
     "question": "A question about the dataset, in plain words.  Claude answers it by writing SQL queries "
                 "against the open file (read-only) and reading the rows back, then says where each figure "
                 "came from.  The box above lists earlier questions.",
-    "past_questions": "Earlier questions; choose one to put it back in the box.",
+    "past_questions": "Earlier questions, then a set of starter questions to try; choose one to put it in the "
+                      "box.  The first starter, 'What can I ask about this dataset?', has Claude describe what "
+                      "the file holds and suggest questions of its own.",
     "ask": "Send the question to Claude with your API key (File > Claude settings).  Each question costs a "
            "few cents on your own account; only the rows Claude asks for travel, never the whole file.",
     "copy_prompt": "No API key?  This puts the question, the schema and the open page on the clipboard as a "

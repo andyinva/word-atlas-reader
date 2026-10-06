@@ -91,9 +91,29 @@ The tables most questions want, by sections.number (titles vary by book):
 Start from the section number when the question names a measure, and from
 sections.title LIKE '%word%' only when it does not.
 
+When the reader asks what the dataset holds or what can be asked, query
+the pages table for the books and kinds present and suggest questions
+that those pages can answer.  When the reader asks what a section or a
+measure is, explain it from the guide above and from the section's own
+note (sections.note), which says what the table measures and how to
+read it, in plain words a newcomer can follow.
+
 Keep each query small: filter by run_id, page kind, section number and
 column, and use LIMIT.  At most {row_limit} rows come back from a query.
 """
+
+# Questions offered in the Past questions box before the reader has asked
+# any, so the box is never empty and the first one explains the rest
+STARTER_QUESTIONS = [
+    "What can I ask about this dataset?",
+    "What are the sections on a book page, and what does each one measure?",
+    "Which books and kinds of page does this file hold?",
+    "Which part of Revelation stands furthest from the rest of the book in its function words?",
+    "What are the top five signature words of Ezra, and what makes a word a signature word?",
+    "Which chapters of 1 Kings echo other books most, and which books?",
+    "Which New Testament book in this file leans most on the Septuagint's vocabulary?",
+    "Which tables declined to measure something, and why?",
+]
 
 RUN_SQL_TOOL = {
     "name": "run_sql",

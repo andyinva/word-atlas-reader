@@ -25,7 +25,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(HERE)
 
-SAMPLE = os.path.join(HERE, "sample", "word_atlas_0.10.72.wadb")
+SAMPLE = os.path.join(HERE, "sample", "word_atlas_0.10.69_2026-10-05.wadb")
 EM_DASH = chr(0x2014)
 results = []
 
@@ -274,9 +274,16 @@ def _():
     w.search()
     assert w.search_box.itemText(0) == "H426"
     assert "H426" in reader_data.load_settings().get("history", {}).get("search", [])
+    # Starter questions sit in the box before any has been asked, and
+    # under a separator after the history once one has
+    from reader_claude import STARTER_QUESTIONS
+    w.settings.setdefault("history", {})["questions"] = []
+    w.fill_history(w.past_box, "questions", blank_first=True, starters=STARTER_QUESTIONS)
+    assert w.past_box.itemText(1) == STARTER_QUESTIONS[0], w.past_box.itemText(1)
     w.remember("questions", "How many pages?")
-    w.fill_history(w.past_box, "questions", blank_first=True)
+    w.fill_history(w.past_box, "questions", blank_first=True, starters=STARTER_QUESTIONS)
     assert w.past_box.itemText(1) == "How many pages?"
+    assert STARTER_QUESTIONS[0] in [w.past_box.itemText(i) for i in range(w.past_box.count())]
     w.past_question_chosen(1)
     assert w.question_edit.toPlainText() == "How many pages?"
     # Jump puts the section's title on the first line shown

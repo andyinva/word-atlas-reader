@@ -17,7 +17,9 @@ shares with the main program (atlas_report.py, atlas_results.py) are
 standard library only and live beside it.
 """
 
+import faulthandler
 import os
+import signal
 import sys
 
 from PyQt6.QtCore import Qt, QTimer
@@ -30,10 +32,10 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
 import atlas_results
 from atlas_report import render, is_numeric_cell
 from reader_data import Dataset, load_settings, save_settings
-from reader_claude import DEFAULT_MODEL, ApiError, clipboard_prompt, list_models, start_worker
+from reader_claude import DEFAULT_MODEL, STARTER_QUESTIONS, ApiError, clipboard_prompt, list_models, start_worker
 from reader_help import HelpMode, column_help
 
-VERSION = "0.2.0"
+VERSION = "0.2.2"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 
@@ -367,7 +369,7 @@ class ReaderWindow(QMainWindow):
         self.past_box = QComboBox()
         self.past_box.setProperty("help", "past_questions")
         self.past_box.activated.connect(self.past_question_chosen)
-        self.fill_history(self.past_box, "questions", blank_first=True)
+        self.fill_history(self.past_box, "questions", blank_first=True, starters=STARTER_QUESTIONS)
         row.addWidget(self.past_box, 1)
         box.addLayout(row)
         self.question_edit = QTextEdit()
@@ -416,14 +418,24 @@ class ReaderWindow(QMainWindow):
         self.settings.setdefault("history", {})[name] = items[:HISTORY_MAX]
         save_settings(self.settings)
 
-    def fill_history(self, box, name, blank_first=False):
-        """Fill a combo box from a history, keeping any text being typed."""
+    def fill_history(self, box, name, blank_first=False, starters=None):
+        """
+        Fill a combo box from a history, keeping any text being typed.
+        With starters, those follow the history under a separator, so a
+        reader who has asked nothing yet still has questions to pick
+        from and a seasoned one keeps them within reach.
+        """
         current = box.currentText() if box.isEditable() else ""
         box.blockSignals(True)
         box.clear()
         if blank_first:
             box.addItem("")
-        box.addItems(self.history(name))
+        items = self.history(name)
+        box.addItems(items)
+        if starters:
+            if items:
+                box.insertSeparator(box.count())
+            box.addItems([q for q in starters if q not in items])
         if box.isEditable():
             box.setEditText(current)
         box.blockSignals(False)
@@ -724,7 +736,7 @@ class ReaderWindow(QMainWindow):
             return
         model = self.settings.get("model", DEFAULT_MODEL)
         self.remember("questions", question)
-        self.fill_history(self.past_box, "questions", blank_first=True)
+        self.fill_history(self.past_box, "questions", blank_first=True, starters=STARTER_QUESTIONS)
         self.ask_button.setEnabled(False)
         self.answer_view.setPlainText("Asking " + model + " ...")
         self.queries_view.setPlainText("")
@@ -772,6 +784,11 @@ class ReaderWindow(QMainWindow):
 
 
 def main():
+    # A way to see where the program is if it ever stops answering: on
+    # Linux,  kill -USR1 <pid>  prints every thread's stack to the
+    # terminal the Reader was started from, without stopping it
+    if hasattr(signal, "SIGUSR1"):
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
     app = QApplication(sys.argv)
     app.setApplicationName("Word Atlas Reader")
     window = ReaderWindow(sys.argv[1] if len(sys.argv) > 1 else None)

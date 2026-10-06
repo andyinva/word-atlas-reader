@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.2.0. Andrew Hopkins, with Claude.
+Version 0.2.2. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -23,7 +23,7 @@ the Reader (see Building below) needs neither.
 ## Running it
 
     python3 word_atlas_reader.py
-    python3 word_atlas_reader.py word_atlas_0.10.72.wadb
+    python3 word_atlas_reader.py word_atlas_0.10.69_2026-10-05.wadb
 
 The Reader remembers the last file opened and opens it again on the
 next start. A sample dataset is in `sample/`.
@@ -79,7 +79,11 @@ and why, and a diff of two runs cell by cell when the file holds more
 than one run.
 
 The **Ask Claude** tab sends a question about the dataset to Claude;
-a "Past questions" box above it lists earlier ones.
+a "Past questions" box above it lists earlier ones, then a set of
+starter questions to try. The first starter, "What can I ask about
+this dataset?", has Claude describe what the file holds and suggest
+questions; another asks what the sections on a book page are. Claude
+can explain the dataset as well as answer from it.
 Claude is given one tool, a read-only SQL query against the open
 database, and answers in prose, naming the page and table each figure
 came from. This needs an API key from console.anthropic.com entered
@@ -135,7 +139,24 @@ search, the results questions, the SQL tool's refusals, the question
 loop against a stand-in API, the window offscreen, help mode and the
 histories, and housekeeping.
 
+## If it ever freezes
+
+Start the Reader from a terminal. If the window stops answering, open
+a second terminal and run
+
+    kill -USR1 $(pgrep -f word_atlas_reader.py)
+
+which makes the Reader print where every thread is to the first
+terminal without stopping it; send that text along with what you were
+doing. (Linux only; on Windows, Task Manager's "Create dump file" is
+the nearest equivalent.)
+
 ## Versions
+
+0.2.2: starter questions in the Past questions box; Claude's
+instructions say to explain the dataset and its sections when asked.
+
+0.2.1: a stack dump on SIGUSR1, for a freeze report.
 
 0.2.0: help mode (the ? button, F1) with notes for every control and
 every column; drop-downs of earlier searches and questions, kept in
