@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.2.2. Andrew Hopkins, with Claude.
+Version 0.3.0. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -83,7 +83,9 @@ a "Past questions" box above it lists earlier ones, then a set of
 starter questions to try. The first starter, "What can I ask about
 this dataset?", has Claude describe what the file holds and suggest
 questions; another asks what the sections on a book page are. Claude
-can explain the dataset as well as answer from it.
+can explain the dataset as well as answer from it. "Save answer as
+text" writes the question, the answer and the queries Claude ran to
+a text file, headed with the dataset, the run, the time and the model.
 Claude is given one tool, a read-only SQL query against the open
 database, and answers in prose, naming the page and table each figure
 came from. This needs an API key from console.anthropic.com entered
@@ -96,6 +98,46 @@ file. Without a key, "Copy as a prompt for claude.ai" puts the
 question, the schema and the open page on the clipboard, to paste into
 claude.ai or any assistant by hand.
 
+## Giving copies away with a guest key
+
+A copy of the Reader can carry a guest API key, so the person you
+give it to can ask Claude questions for a while without a key of
+their own. The key lives in `guest_key.dat` beside the program,
+scrambled and tied to an end date; the Reader uses it until that
+date, never shows it on screen, and a key the user enters under File
+> Claude settings is used instead of it.
+
+Do it in this order, because the real protection is on Anthropic's
+side, not in the file:
+
+1. In console.anthropic.com make a separate workspace for guests
+   (Settings > Workspaces) and give it a monthly spending limit. A
+   question costs cents, so a few dollars covers a fortnight of
+   curiosity; the limit is what stops a copy that gets passed on from
+   costing you more.
+2. Make an API key in that workspace, not in your own.
+3. In the Reader's folder run
+
+       python3 reader_guest.py make sk-ant-... 15
+
+   which writes `guest_key.dat` good for 15 days from today. The
+   `.gitignore` keeps that file out of the repository.
+4. Hand over the Reader's folder (or the PyInstaller build) with
+   `guest_key.dat` and the `.wadb` inside.
+5. On the end date, delete the key in the console. The date in the
+   file is a courtesy the Reader keeps; the deletion is the one nobody
+   can get around.
+
+`python3 reader_guest.py show` says whether a guest key is present
+and when it ends. Be clear with yourself about what the scrambling
+does: it keeps the key out of plain sight, off the screen and out of
+the settings file, so a casual reader cannot copy it out. It does not
+make it unrecoverable, because the program has to unscramble it to
+send it; someone with the file, the source and the will can get it
+out, as they can from any program that carries a key. That is why the
+spending limit and the deletion matter, and why the guest key should
+be thought of as a small prepaid card, never as a secret.
+
 ## The files
 
 | file | what it is |
@@ -103,6 +145,8 @@ claude.ai or any assistant by hand.
 | `word_atlas_reader.py` | the window |
 | `reader_data.py` | opens a `.wadb` or `results.db`, rebuilds pages, searches |
 | `reader_claude.py` | the Claude panel's API call, the SQL tool, the worker thread |
+| `reader_guest.py` | the guest key: `make` writes `guest_key.dat`, `show` reports it |
+| `guest_key.dat` | a scrambled guest key with its end date, when a copy carries one; never committed |
 | `reader_help.py` | help mode and the column explanations (copied from the main program's atlas_help.py) |
 | `atlas_report.py` | the page layout, shared with the main program |
 | `atlas_results.py` | the results questions, shared with the main program |
@@ -134,10 +178,10 @@ past that.
 
     python3 test_reader.py
 
-Twelve tests: opening the sample, rendering a page, the cell text,
+Thirteen tests: opening the sample, rendering a page, the cell text,
 search, the results questions, the SQL tool's refusals, the question
 loop against a stand-in API, the window offscreen, help mode and the
-histories, and housekeeping.
+histories, the guest key, and housekeeping.
 
 ## If it ever freezes
 
@@ -152,6 +196,10 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.0: a guest key for copies given away (reader_guest.py), used
+until its end date, never shown, replaced by the user's own key;
+Save answer as text on the Ask Claude tab.
 
 0.2.2: starter questions in the Past questions box; Claude's
 instructions say to explain the dataset and its sections when asked.

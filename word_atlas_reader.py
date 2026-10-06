@@ -21,6 +21,7 @@ import faulthandler
 import os
 import signal
 import sys
+import time
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut, QTextCursor
@@ -34,8 +35,9 @@ from atlas_report import render, is_numeric_cell
 from reader_data import Dataset, load_settings, save_settings
 from reader_claude import DEFAULT_MODEL, STARTER_QUESTIONS, ApiError, clipboard_prompt, list_models, start_worker
 from reader_help import HelpMode, column_help
+import reader_guest
 
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 
@@ -106,7 +108,20 @@ class SettingsDialog(QDialog):
         self.key_edit = QLineEdit(self.settings.get("api_key", ""))
         self.key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_edit.setPlaceholderText("sk-ant-...")
-        form.addRow("API key", self.key_edit)
+        form.addRow("Your API key", self.key_edit)
+        # A guest key built into this copy is named by its end date only;
+        # the key itself is never shown, and a key typed above replaces it
+        self.guest_key, until = reader_guest.load()
+        if self.guest_key:
+            guest = QLabel(f"This copy carries a guest key good until {until} "
+                           f"({reader_guest.days_left(until)} days left).  Leave the box above empty to use it; "
+                           "a key of your own, entered above, is used instead.")
+        elif until:
+            guest = QLabel(f"This copy's guest key ended on {until}.  Enter a key of your own above.")
+        else:
+            guest = QLabel("No guest key in this copy; enter a key of your own above.")
+        guest.setWordWrap(True)
+        form.addRow(guest)
         row = QHBoxLayout()
         self.model_box = QComboBox()
         self.model_box.setEditable(True)
@@ -127,7 +142,7 @@ class SettingsDialog(QDialog):
 
     def fetch_models(self):
         """Ask the API which models this key may use and list them."""
-        key = self.key_edit.text().strip()
+        key = self.key_edit.text().strip() or self.guest_key
         if not key:
             QMessageBox.information(self, "Fetch models", "Enter the API key first.")
             return
@@ -169,10 +184,14 @@ class ReaderWindow(QMainWindow):
         self._build_menus()
         self._build_body()
         self.statusBar().showMessage("Open a dataset: File > Open (a .wadb or a results.db)")
-        # Open the file named on the command line, else the last one opened
+        # Open the file named on the command line, else the last one opened;
+        # a last file that has gone (moved, renamed) is named, not passed
+        # over in silence
         path = path or self.settings.get("last_file")
         if path and os.path.exists(path):
             QTimer.singleShot(0, lambda: self.open_path(path))
+        elif path:
+            self.statusBar().showMessage(f"The last dataset, {path}, is no longer there: open another with File > Open")
 
     # --- building --------------------------------------------------------------
     def _build_menus(self):
@@ -361,8 +380,15 @@ class ReaderWindow(QMainWindow):
     def _build_claude_tab(self):
         tab = QWidget()
         box = QVBoxLayout(tab)
-        box.addWidget(QLabel("Ask a question of the dataset.  Claude answers by running read-only SQL "
-                             "queries against it with your own API key (File > Claude settings)."))
+        guest_key, until = reader_guest.load()
+        if guest_key:
+            heading = (f"Ask a question of the dataset.  Claude answers by running read-only SQL queries against "
+                       f"it.  This copy carries a guest key good until {until}; after that, or sooner if you "
+                       "like, enter a key of your own under File > Claude settings.")
+        else:
+            heading = ("Ask a question of the dataset.  Claude answers by running read-only SQL "
+                       "queries against it with your own API key (File > Claude settings).")
+        box.addWidget(QLabel(heading))
         # Earlier questions in a drop-down; choosing one puts it back in the box
         row = QHBoxLayout()
         row.addWidget(QLabel("Past questions:"))
@@ -389,6 +415,12 @@ class ReaderWindow(QMainWindow):
                         "claude.ai or any assistant.")
         copy.clicked.connect(self.copy_prompt)
         row.addWidget(copy)
+        self.save_answer_button = QPushButton("Save answer as text...")
+        self.save_answer_button.setProperty("help", "save_answer")
+        self.save_answer_button.setToolTip("Write the question, the answer and the queries to a text file")
+        self.save_answer_button.setEnabled(False)
+        self.save_answer_button.clicked.connect(self.save_answer)
+        row.addWidget(self.save_answer_button)
         row.addStretch(1)
         box.addLayout(row)
         self.answer_view = QTextEdit()
@@ -728,11 +760,13 @@ class ReaderWindow(QMainWindow):
         if self.thread is not None and self.thread.isRunning():
             QMessageBox.information(self, "Ask Claude", "A question is still being answered.")
             return
-        key = self.settings.get("api_key", "")
+        key = self.settings.get("api_key", "") or reader_guest.load()[0]
         if not key:
+            _, until = reader_guest.load()
+            ended = f"  This copy's guest key ended on {until}." if until else ""
             QMessageBox.information(self, "Ask Claude",
                                     "Enter your API key under File > Claude settings first, or use "
-                                    "'Copy as a prompt' and paste the question into claude.ai.")
+                                    "'Copy as a prompt' and paste the question into claude.ai." + ended)
             return
         model = self.settings.get("model", DEFAULT_MODEL)
         self.remember("questions", question)
@@ -751,11 +785,44 @@ class ReaderWindow(QMainWindow):
 
     def answered(self, answer, queries):
         self.answer_view.setMarkdown(answer)
+        # Kept as written for the saved file: the view's markdown has
+        # been turned into formatting, and the plain text is what a
+        # text file wants
+        self.last_answer = {"question": self.question_edit.toPlainText().strip(), "answer": answer,
+                            "queries": list(queries), "model": self.settings.get("model", DEFAULT_MODEL),
+                            "asked": time.strftime("%Y-%m-%d %H:%M")}
+        self.save_answer_button.setEnabled(True)
         self.ask_button.setEnabled(True)
 
     def ask_failed(self, message):
         self.answer_view.setPlainText("The question could not be answered.\n\n" + message)
         self.ask_button.setEnabled(True)
+
+    def save_answer(self):
+        """Write the last question, its answer and the queries behind it to a text file."""
+        last = getattr(self, "last_answer", None)
+        if not last:
+            return
+        dataset = os.path.basename(self.data.source_path) if self.data else ""
+        lines = ["WORD ATLAS READER  -  a question answered by Claude",
+                 "#" * 52,
+                 f"Dataset: {dataset}, run {self.run_id}.  Asked {last['asked']}, model {last['model']}.",
+                 "",
+                 "Question",
+                 "========",
+                 last["question"],
+                 "",
+                 "Answer",
+                 "======",
+                 last["answer"],
+                 "",
+                 "The queries Claude ran",
+                 "======================"]
+        lines.extend(q.strip() + "\n" for q in last["queries"])
+        # A file name from the question's first words
+        words = "".join(c if c.isalnum() or c == " " else " " for c in last["question"]).split()[:6]
+        suggested = "answer_" + "_".join(w.lower() for w in words) + ".txt" if words else "answer.txt"
+        self._save_text("\n".join(lines).rstrip() + "\n", suggested, "Save answer as text")
 
     def copy_prompt(self):
         """Put a ready-made prompt on the clipboard for a reader without a key."""

@@ -60,10 +60,13 @@ HELP = {
     "past_questions": "Earlier questions, then a set of starter questions to try; choose one to put it in the "
                       "box.  The first starter, 'What can I ask about this dataset?', has Claude describe what "
                       "the file holds and suggest questions of its own.",
-    "ask": "Send the question to Claude with your API key (File > Claude settings).  Each question costs a "
-           "few cents on your own account; only the rows Claude asks for travel, never the whole file.",
+    "ask": "Send the question to Claude with your API key (File > Claude settings), or with the guest key "
+           "built into this copy while it lasts.  Each question costs a few cents; only the rows Claude asks "
+           "for travel, never the whole file.",
     "copy_prompt": "No API key?  This puts the question, the schema and the open page on the clipboard as a "
                    "prompt to paste into claude.ai or any assistant.",
+    "save_answer": "Write the last question, Claude's answer and the queries it ran to a text file, headed "
+                   "with the dataset, the run, the time and the model.",
     "answer": "Claude's answer.  The figures come from the queries listed below; check them against the "
               "page and table it names.",
     "queries": "The SQL queries Claude ran to answer, in order, including any the Reader refused (only a "

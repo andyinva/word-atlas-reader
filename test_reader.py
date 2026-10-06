@@ -201,6 +201,24 @@ def _():
         reader_claude.post_json = real
     assert answer == "There are 101 pages.", answer
     assert queries == ["SELECT COUNT(*) FROM pages"], queries
+    # The window keeps the answer and saves it as text with the queries
+    import word_atlas_reader as R
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    w = R.ReaderWindow()
+    w.open_path(SAMPLE)
+    w.question_edit.setPlainText("How many pages?")
+    assert not w.save_answer_button.isEnabled()
+    w.answered(answer, queries)
+    assert w.save_answer_button.isEnabled()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "a.txt")
+        w._save_text = lambda text, suggested, title: open(out, "w", encoding="utf-8").write(text)
+        w.save_answer()
+        saved = open(out, encoding="utf-8").read()
+    assert "How many pages?" in saved and "There are 101 pages." in saved and "SELECT COUNT(*) FROM pages" in saved
+    assert saved.startswith("WORD ATLAS READER")
+    w.close()
     assert "run_sql" in [t["name"] for t in calls[0]["tools"]]
     assert "run_id is 1" in calls[0]["system"]
     d.close()
@@ -293,6 +311,46 @@ def _():
     w.wrap_check.setChecked(True)
     assert w.page_view.lineWrapMode() == R.QPlainTextEdit.LineWrapMode.WidgetWidth
     w.close()
+
+
+@test("a guest key round-trips, hides itself, ends on its date, and yields to the user's own key")
+def _():
+    import reader_guest
+    import word_atlas_reader as R
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "guest_key.dat")
+        until = reader_guest.make("sk-ant-test-0123456789", 15, path=path)
+        text = open(path, encoding="utf-8").read()
+        assert "sk-ant-test" not in text, "the key is in plain sight in the file"
+        key, got_until = reader_guest.load(path)
+        assert key == "sk-ant-test-0123456789" and got_until == until
+        assert reader_guest.days_left(until) == 15
+        # Past its date it is not handed out
+        import json
+        record = json.load(open(path, encoding="utf-8"))
+        record["until"] = "2000-01-01"
+        json.dump(record, open(path, "w", encoding="utf-8"))
+        assert reader_guest.load(path) == (None, "2000-01-01")
+        # A damaged file yields nothing rather than an error
+        open(path, "w").write("not json")
+        assert reader_guest.load(path) == (None, None)
+        # In the window, the user's own key wins over the guest key, and the
+        # settings dialog never shows the guest key
+        real_load = reader_guest.load
+        reader_guest.load = lambda path=None: ("sk-ant-guest", "2099-01-01")
+        try:
+            w = R.ReaderWindow()
+            dialog = R.SettingsDialog({"api_key": "sk-ant-mine"}, w)
+            assert dialog.key_edit.text() == "sk-ant-mine"
+            assert dialog.guest_key == "sk-ant-guest"
+            labels = [c.text() for c in dialog.findChildren(R.QLabel)]
+            assert not any("sk-ant-guest" in t for t in labels), "the guest key is shown"
+            assert any("guest key good until 2099-01-01" in t for t in labels)
+            w.close()
+        finally:
+            reader_guest.load = real_load
 
 
 # --- housekeeping --------------------------------------------------------------------------

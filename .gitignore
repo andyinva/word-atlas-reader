@@ -1,3 +1,5 @@
 __pycache__/
 build/
 dist/
+*.spec.bak
+guest_key.dat
