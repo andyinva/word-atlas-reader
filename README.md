@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.1.0. Andrew Hopkins, with Claude.
+Version 0.2.0. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -44,6 +44,12 @@ dataset: the database is opened read-only.
 
 ## What the window shows
 
+The **?** button at the top right (or F1) is help mode: the pointer
+becomes a question mark, and resting it on any part of the window
+shows a note saying what that part is. Point at a column heading in a
+grid and the note explains the column, with the same explanations the
+main program gives. A click, Escape or ? again leaves help mode.
+
 The run box at the top names each run the file holds (a run is one
 pass of the main program: its version, build line and start time). The
 tree on the left lists the run's pages by kind: Book, Chapter, Section,
@@ -52,7 +58,9 @@ narrows the list by title.
 
 The **Page** tab shows the chosen page as text, exactly as the main
 program's `reports/*.txt` file shows it, with a box to jump to any
-section. File > Save page as text writes it out.
+section (its title lands on the first line) and a "Wrap long lines"
+box for the prose lines that run past the window. File > Save page as
+text writes it out.
 
 The **Table** tab shows one table of the page as a grid. Click a column
 header to sort by it (numbers sort as numbers). Hover over a row for
@@ -61,7 +69,7 @@ table's note is above the grid and its footer lines below.
 
 The **Search** box at the top looks through every cell, section title
 and footer of the run. Double-click a hit to open its page at that
-table.
+table. The arrow at the box's right lists earlier searches.
 
 The **Results** menu asks the questions `atlas_results.py` asks of the
 main program's database: the runs in the file, the Septuagint shares
@@ -70,7 +78,8 @@ against its rest (7d), the echo seams (4e), the tables that declined
 and why, and a diff of two runs cell by cell when the file holds more
 than one run.
 
-The **Ask Claude** tab sends a question about the dataset to Claude.
+The **Ask Claude** tab sends a question about the dataset to Claude;
+a "Past questions" box above it lists earlier ones.
 Claude is given one tool, a read-only SQL query against the open
 database, and answers in prose, naming the page and table each figure
 came from. This needs an API key from console.anthropic.com entered
@@ -90,6 +99,7 @@ claude.ai or any assistant by hand.
 | `word_atlas_reader.py` | the window |
 | `reader_data.py` | opens a `.wadb` or `results.db`, rebuilds pages, searches |
 | `reader_claude.py` | the Claude panel's API call, the SQL tool, the worker thread |
+| `reader_help.py` | help mode and the column explanations (copied from the main program's atlas_help.py) |
 | `atlas_report.py` | the page layout, shared with the main program |
 | `atlas_results.py` | the results questions, shared with the main program |
 | `test_reader.py` | the test script: `python3 test_reader.py` before every commit |
@@ -97,7 +107,8 @@ claude.ai or any assistant by hand.
 | `sample/` | a sample dataset (Ezra, Revelation, 1 Kings from Word Atlas 0.10.69) |
 
 `atlas_report.py` and `atlas_results.py` are copies of the main
-program's files and are standard library only. When the main program
+program's files and are standard library only; the column help in
+`reader_help.py` is copied from its `atlas_help.py`. When the main program
 changes them, copy them over again; the Reader's tests will say if the
 copy no longer fits.
 
@@ -119,6 +130,17 @@ past that.
 
     python3 test_reader.py
 
-Eleven tests: opening the sample, rendering a page, the cell text,
+Twelve tests: opening the sample, rendering a page, the cell text,
 search, the results questions, the SQL tool's refusals, the question
-loop against a stand-in API, the window offscreen, and housekeeping.
+loop against a stand-in API, the window offscreen, help mode and the
+histories, and housekeeping.
+
+## Versions
+
+0.2.0: help mode (the ? button, F1) with notes for every control and
+every column; drop-downs of earlier searches and questions, kept in
+the settings; a jump lands the section title on the first line; a
+wrap box for long lines; Claude's instructions name the tables by
+number so it goes to 7d without searching for it.
+
+0.1.0: the first version.

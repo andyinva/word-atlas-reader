@@ -247,6 +247,47 @@ def _():
     w.close()
 
 
+@test("help mode names the control and the column under the pointer; histories are kept")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QPoint
+    app = QApplication.instance() or QApplication(sys.argv)
+    import word_atlas_reader as R
+    import reader_data
+    w = R.ReaderWindow()
+    w.open_path(SAMPLE)
+    app.processEvents()
+    # A control with a help key explains itself; a grid names its column
+    assert "Search every cell" in w.help_mode.text_for(w.search_box, QPoint(0, 0))
+    w.show_table(0)
+    note = w.grid.help_at(QPoint(w.grid.columnViewportPosition(1) + 5, 5))
+    assert note.startswith("count:"), note
+    hit = w.search_grid.help_at(QPoint(w.search_grid.columnViewportPosition(0) + 5, 5))
+    assert hit.startswith("page:"), hit
+    # Help mode switches on with the button and off with Escape
+    w.help_btn.setChecked(True)
+    assert w.help_mode.active
+    w.help_mode.set_active(False)
+    assert not w.help_btn.isChecked()
+    # A search and a question go into their drop-downs and the settings
+    w.search_edit.setText("H426")
+    w.search()
+    assert w.search_box.itemText(0) == "H426"
+    assert "H426" in reader_data.load_settings().get("history", {}).get("search", [])
+    w.remember("questions", "How many pages?")
+    w.fill_history(w.past_box, "questions", blank_first=True)
+    assert w.past_box.itemText(1) == "How many pages?"
+    w.past_question_chosen(1)
+    assert w.question_edit.toPlainText() == "How many pages?"
+    # Jump puts the section's title on the first line shown
+    w.jump_to_section(3)
+    top = w.page_view.verticalScrollBar().value()
+    assert w.page_text.split("\n")[top] == w.report.sections[3].title
+    w.wrap_check.setChecked(True)
+    assert w.page_view.lineWrapMode() == R.QPlainTextEdit.LineWrapMode.WidgetWidth
+    w.close()
+
+
 # --- housekeeping --------------------------------------------------------------------------
 @test("housekeeping: no em dash in any .py or .md, every .py compiles")
 def _():

@@ -72,6 +72,25 @@ Notes on the data:
 - footers: the lines printed under a table (findings in words).
 - refs: the verse references behind a row.
 
+The tables most questions want, by sections.number (titles vary by book):
+- Book page: 1 signature words (keyness against the rest of the testament),
+  1b against the book's kind, 1c function-word profile, 1d vocabulary
+  richness, 1e/1f Septuagint vocabulary and leanings (New Testament books),
+  2 signature formulas, 3.1 to 3.5 neighbors of the leading words,
+  4 echoes with other books, 4a echo partners, 4a2 who reads whom,
+  4b echoes by chapter, 4e Septuagint echoes in Greek, 4f English echoes
+  not confirmed in Greek, 5 reach and depth, 6 echoes within the book,
+  6b refrains, 6c kin chapters, 6d shared vocabulary, 7 sections
+  (parts of the book), 7b section against section, 7c reach and depth by
+  section, 7d function words by section (Burrows' Delta of each part
+  from the rest; the footers give the yardsticks and pairwise distances).
+- Chapter page: leading words, signature words, formulas, parallels.
+- Compare page: two books against each other, shared formulas and refrains.
+- Section page: one part of a book (or a cross-book group) with the same
+  numbering as a book page.
+Start from the section number when the question names a measure, and from
+sections.title LIKE '%word%' only when it does not.
+
 Keep each query small: filter by run_id, page kind, section number and
 column, and use LIMIT.  At most {row_limit} rows come back from a query.
 """

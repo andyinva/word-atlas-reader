@@ -21,8 +21,8 @@ import os
 import sys
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QFont, QKeySequence, QTextCursor
-from PyQt6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut, QTextCursor
+from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
                              QPlainTextEdit, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
                              QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
@@ -31,9 +31,11 @@ import atlas_results
 from atlas_report import render, is_numeric_cell
 from reader_data import Dataset, load_settings, save_settings
 from reader_claude import DEFAULT_MODEL, ApiError, clipboard_prompt, list_models, start_worker
+from reader_help import HelpMode, column_help
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
+HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 
 
 def mono_font():
@@ -45,8 +47,27 @@ def mono_font():
 
 
 # ---------------------------------------------------------------------------
-# A table item that sorts numbers as numbers
+# A grid that explains its columns in help mode, and a table item that
+# sorts numbers as numbers
 # ---------------------------------------------------------------------------
+
+class HelpGrid(QTableWidget):
+    """A QTableWidget whose help note names the column under the pointer."""
+
+    def help_at(self, pos):
+        """The help for the column heading at pos (a point in this widget), or the grid's own note."""
+        header = self.horizontalHeader()
+        local = self.viewport().mapFrom(self, pos)
+        col = header.logicalIndexAt(local.x())
+        if col < 0 or self.columnCount() == 0:
+            return ""
+        item = self.horizontalHeaderItem(col)
+        heading = item.text() if item else ""
+        own = self.property("help_columns") or {}
+        if heading in own:
+            return f"{heading}: {own[heading]}"
+        return f"{heading}: {column_help(heading)}"
+
 
 class CellItem(QTableWidgetItem):
     """A grid cell: numeric cells compare by value, others by text."""
@@ -186,17 +207,34 @@ class ReaderWindow(QMainWindow):
         bar = QHBoxLayout()
         bar.addWidget(QLabel("Run:"))
         self.run_box = QComboBox()
+        self.run_box.setProperty("help", "run")
         self.run_box.currentIndexChanged.connect(self.run_changed)
         bar.addWidget(self.run_box, 2)
         bar.addSpacing(20)
         bar.addWidget(QLabel("Search every cell:"))
-        self.search_edit = QLineEdit()
+        # An editable box whose drop-down lists earlier searches
+        self.search_box = QComboBox()
+        self.search_box.setEditable(True)
+        self.search_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.search_box.setProperty("help", "search")
+        self.search_edit = self.search_box.lineEdit()
         self.search_edit.setPlaceholderText("a word, a Strong's number, a phrase ...")
         self.search_edit.returnPressed.connect(self.search)
-        bar.addWidget(self.search_edit, 2)
+        self.search_box.activated.connect(lambda i: self.search())
+        self.fill_history(self.search_box, "search")
+        bar.addWidget(self.search_box, 2)
         go = QPushButton("Search")
+        go.setProperty("help", "search")
         go.clicked.connect(self.search)
         bar.addWidget(go)
+        bar.addSpacing(12)
+        # The help switch: a checkable ? button, or F1
+        self.help_btn = QPushButton("?")
+        self.help_btn.setCheckable(True)
+        self.help_btn.setFixedWidth(32)
+        self.help_btn.setToolTip("Help mode (F1): point at anything to read what it is")
+        self.help_btn.setProperty("help", "help")
+        bar.addWidget(self.help_btn)
         outer.addLayout(bar)
         # Left: the pages of the run, grouped by kind.  Right: the views.
         split = QSplitter()
@@ -206,14 +244,17 @@ class ReaderWindow(QMainWindow):
         left_box.setContentsMargins(0, 0, 0, 0)
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("filter pages by title")
+        self.filter_edit.setProperty("help", "filter")
         self.filter_edit.textChanged.connect(self.filter_pages)
         left_box.addWidget(self.filter_edit)
         self.page_tree = QTreeWidget()
         self.page_tree.setHeaderHidden(True)
+        self.page_tree.setProperty("help", "pages")
         self.page_tree.currentItemChanged.connect(self.page_chosen)
         left_box.addWidget(self.page_tree, 1)
         split.addWidget(left)
         self.tabs = QTabWidget()
+        self.tabs.setProperty("help", "tabs")
         split.addWidget(self.tabs)
         split.setSizes([340, 960])
         self._build_page_tab()
@@ -221,6 +262,10 @@ class ReaderWindow(QMainWindow):
         self._build_search_tab()
         self._build_results_tab()
         self._build_claude_tab()
+        # Help mode: the ? button, F1, and the event filter that shows the notes
+        self.help_mode = HelpMode(self, self.help_btn)
+        self.help_btn.toggled.connect(self.help_mode.set_active)
+        QShortcut(QKeySequence("F1"), self, activated=lambda: self.help_btn.toggle())
 
     def _build_page_tab(self):
         """The page as text, with a box to jump to a section."""
@@ -229,13 +274,19 @@ class ReaderWindow(QMainWindow):
         row = QHBoxLayout()
         row.addWidget(QLabel("Jump to section:"))
         self.jump_box = QComboBox()
+        self.jump_box.setProperty("help", "jump")
         self.jump_box.activated.connect(self.jump_to_section)
         row.addWidget(self.jump_box, 1)
+        self.wrap_check = QCheckBox("Wrap long lines")
+        self.wrap_check.setProperty("help", "wrap")
+        self.wrap_check.toggled.connect(self.set_wrap)
+        row.addWidget(self.wrap_check)
         box.addLayout(row)
         self.page_view = QPlainTextEdit()
         self.page_view.setReadOnly(True)
         self.page_view.setFont(mono_font())
         self.page_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.page_view.setProperty("help", "page_view")
         box.addWidget(self.page_view, 1)
         self.tabs.addTab(tab, "Page")
 
@@ -246,13 +297,16 @@ class ReaderWindow(QMainWindow):
         row = QHBoxLayout()
         row.addWidget(QLabel("Table:"))
         self.table_box = QComboBox()
+        self.table_box.setProperty("help", "table_box")
         self.table_box.currentIndexChanged.connect(self.show_table)
         row.addWidget(self.table_box, 1)
         box.addLayout(row)
         self.table_note = QLabel()
         self.table_note.setWordWrap(True)
+        self.table_note.setProperty("help", "table_note")
         box.addWidget(self.table_note)
-        self.grid = QTableWidget()
+        self.grid = HelpGrid()
+        self.grid.setProperty("help", "grid")
         self.grid.setSortingEnabled(True)
         self.grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.grid.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -262,6 +316,7 @@ class ReaderWindow(QMainWindow):
         self.table_footer = QPlainTextEdit()
         self.table_footer.setReadOnly(True)
         self.table_footer.setMaximumHeight(140)
+        self.table_footer.setProperty("help", "table_footer")
         box.addWidget(self.table_footer)
         self.tabs.addTab(tab, "Table")
 
@@ -270,9 +325,15 @@ class ReaderWindow(QMainWindow):
         box = QVBoxLayout(tab)
         self.search_note = QLabel("Type in the search box above and press Enter.")
         box.addWidget(self.search_note)
-        self.search_grid = QTableWidget()
+        self.search_grid = HelpGrid()
         self.search_grid.setColumnCount(5)
         self.search_grid.setHorizontalHeaderLabels(["page", "table", "row", "column", "value"])
+        self.search_grid.setProperty("help", "search_grid")
+        self.search_grid.setProperty("help_columns", {
+            "page": "The page the hit is on.", "table": "The number of the table on that page.",
+            "row": "The row of the table, counted from 1; empty for a hit in a title or footer.",
+            "column": "The column the hit is in; 'title' or 'footer' for a hit outside the table.",
+            "value": "The cell, title or footer that holds the search text."})
         self.search_grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.search_grid.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.search_grid.cellDoubleClicked.connect(self.search_hit_opened)
@@ -288,6 +349,7 @@ class ReaderWindow(QMainWindow):
         self.results_view.setReadOnly(True)
         self.results_view.setFont(mono_font())
         self.results_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.results_view.setProperty("help", "results_view")
         box.addWidget(self.results_view, 1)
         save = QPushButton("Save as text...")
         save.clicked.connect(self.save_results)
@@ -299,16 +361,28 @@ class ReaderWindow(QMainWindow):
         box = QVBoxLayout(tab)
         box.addWidget(QLabel("Ask a question of the dataset.  Claude answers by running read-only SQL "
                              "queries against it with your own API key (File > Claude settings)."))
+        # Earlier questions in a drop-down; choosing one puts it back in the box
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Past questions:"))
+        self.past_box = QComboBox()
+        self.past_box.setProperty("help", "past_questions")
+        self.past_box.activated.connect(self.past_question_chosen)
+        self.fill_history(self.past_box, "questions", blank_first=True)
+        row.addWidget(self.past_box, 1)
+        box.addLayout(row)
         self.question_edit = QTextEdit()
         self.question_edit.setPlaceholderText("Which part of Revelation stands furthest from the rest of the book "
                                               "in its function words?")
         self.question_edit.setMaximumHeight(90)
+        self.question_edit.setProperty("help", "question")
         box.addWidget(self.question_edit)
         row = QHBoxLayout()
         self.ask_button = QPushButton("Ask Claude")
+        self.ask_button.setProperty("help", "ask")
         self.ask_button.clicked.connect(self.ask_claude)
         row.addWidget(self.ask_button)
         copy = QPushButton("Copy as a prompt for claude.ai")
+        copy.setProperty("help", "copy_prompt")
         copy.setToolTip("No API key?  Copy the question with the schema and the open page, and paste it into "
                         "claude.ai or any assistant.")
         copy.clicked.connect(self.copy_prompt)
@@ -317,14 +391,52 @@ class ReaderWindow(QMainWindow):
         box.addLayout(row)
         self.answer_view = QTextEdit()
         self.answer_view.setReadOnly(True)
+        self.answer_view.setProperty("help", "answer")
         box.addWidget(self.answer_view, 2)
         box.addWidget(QLabel("The queries Claude ran:"))
         self.queries_view = QPlainTextEdit()
         self.queries_view.setReadOnly(True)
         self.queries_view.setFont(mono_font())
         self.queries_view.setMaximumHeight(160)
+        self.queries_view.setProperty("help", "queries")
         box.addWidget(self.queries_view)
         self.tabs.addTab(tab, "Ask Claude")
+
+    # --- histories: earlier searches and questions, kept in the settings ------------
+    def history(self, name):
+        return list(self.settings.get("history", {}).get(name, []))
+
+    def remember(self, name, text):
+        """Put text at the head of a history, dropping an older copy, and save."""
+        text = text.strip()
+        if not text:
+            return
+        items = [t for t in self.history(name) if t != text]
+        items.insert(0, text)
+        self.settings.setdefault("history", {})[name] = items[:HISTORY_MAX]
+        save_settings(self.settings)
+
+    def fill_history(self, box, name, blank_first=False):
+        """Fill a combo box from a history, keeping any text being typed."""
+        current = box.currentText() if box.isEditable() else ""
+        box.blockSignals(True)
+        box.clear()
+        if blank_first:
+            box.addItem("")
+        box.addItems(self.history(name))
+        if box.isEditable():
+            box.setEditText(current)
+        box.blockSignals(False)
+
+    def past_question_chosen(self, index):
+        text = self.past_box.itemText(index)
+        if text:
+            self.question_edit.setPlainText(text)
+
+    def set_wrap(self, on):
+        """Wrap the page text to the window, or keep it as the file lays it out."""
+        mode = QPlainTextEdit.LineWrapMode.WidgetWidth if on else QPlainTextEdit.LineWrapMode.NoWrap
+        self.page_view.setLineWrapMode(mode)
 
     # --- opening a file ------------------------------------------------------------
     def open_dialog(self):
@@ -437,12 +549,14 @@ class ReaderWindow(QMainWindow):
         pos = self.page_text.find("\n" + title + "\n")
         if pos < 0:
             return
+        # Scroll so the title's line is the first one shown: the line
+        # number is the count of newlines before it, and the vertical
+        # scroll bar of a plain text view counts in lines
+        line = self.page_text.count("\n", 0, pos + 1)
         cursor = self.page_view.textCursor()
         cursor.setPosition(pos + 1)
-        # Scroll to the end first, then back, so the title lands at the top
-        self.page_view.moveCursor(QTextCursor.MoveOperation.End)
         self.page_view.setTextCursor(cursor)
-        self.page_view.centerCursor()
+        self.page_view.verticalScrollBar().setValue(line)
         self.tabs.setCurrentIndex(0)
 
     def show_table(self, index):
@@ -490,6 +604,8 @@ class ReaderWindow(QMainWindow):
         if self.data is None or not text:
             return
         hits = self.data.search(self.run_id, text)
+        self.remember("search", text)
+        self.fill_history(self.search_box, "search")
         self.search_grid.setRowCount(0)
         self.search_grid.setRowCount(len(hits))
         for i, (page_id, page, number, row, column, value) in enumerate(hits):
@@ -607,6 +723,8 @@ class ReaderWindow(QMainWindow):
                                     "'Copy as a prompt' and paste the question into claude.ai.")
             return
         model = self.settings.get("model", DEFAULT_MODEL)
+        self.remember("questions", question)
+        self.fill_history(self.past_box, "questions", blank_first=True)
         self.ask_button.setEnabled(False)
         self.answer_view.setPlainText("Asking " + model + " ...")
         self.queries_view.setPlainText("")
@@ -643,6 +761,11 @@ class ReaderWindow(QMainWindow):
                           "every page, every table, every figure, in one file.\n\nAndrew Hopkins, with Claude.")
 
     def closeEvent(self, event):
+        # The help mode's filter sits on the application, not the window,
+        # so it must be taken off before the window goes, or the next
+        # event would reach a filter whose window is gone
+        self.help_mode.set_active(False)
+        QApplication.instance().removeEventFilter(self.help_mode)
         if self.data is not None:
             self.data.close()
         event.accept()
