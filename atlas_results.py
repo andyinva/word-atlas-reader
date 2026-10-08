@@ -14,6 +14,7 @@ reviewer) reads the answer the same way as a dossier.
     python3 atlas_results.py seams                    the seams between the two taggings 4e found, counted across the canon
     python3 atlas_results.py declined                 every table that declined to measure, with its reason
     python3 atlas_results.py listed                   the echo tables (4, 4e, 6) against the cross references, book by book
+    python3 atlas_results.py unlisted [N]             a random sample of N unlisted echo rows (default 100) to grade by hand; --seed S
     python3 atlas_results.py section Isaiah 7d        one section of one page, as stored
     python3 atlas_results.py diff 1 2                 the cells that differ between two runs, page by page
     python3 atlas_results.py sql "SELECT ..."         any query, printed as a table
@@ -376,6 +377,44 @@ def q_listed(db, run):
     return head, table(["book", "table", "links to", "listed", "held", "held %", "100+ votes", "held"], rows)
 
 
+def q_unlisted(db, run, n=100, seed=1):
+    """
+    A random sample of the echo rows (tables 4 and 4e) that no cross
+    reference lists, for grading by hand: real connection, shared idiom,
+    or coincidence.  A hundred grades give the false-positive rate of the
+    echo layer and the shape of its idiom, which is what tells which rule
+    to tighten.  The sample is drawn with a fixed seed so it can be
+    drawn again; --seed changes it.  A 'verdict' column is left blank.
+    """
+    import random
+    rows = []
+    for s in db.execute(
+            "SELECT s.section_id, s.number, s.columns, p.title FROM sections s JOIN pages p USING (page_id) "
+            "WHERE p.run_id = ? AND p.kind = 'Book' AND s.number IN ('4', '4e')", (run,)):
+        columns = s["columns"].split("\t")
+        if "listed" not in columns:
+            continue
+        li = columns.index("listed")
+        cells = {}
+        for c in db.execute("SELECT row, col, value FROM cells WHERE section_id = ?", (s["section_id"],)):
+            cells.setdefault(c["row"], {})[c["col"]] = c["value"]
+        for r, by_col in cells.items():
+            if by_col.get(li, "") != "":
+                continue
+            if s["number"] == "4":
+                echo, grade, here, there = by_col.get(0, ""), by_col.get(1, ""), by_col.get(2, ""), by_col.get(3, "")
+            else:
+                echo, grade, here, there = by_col.get(1, ""), by_col.get(4, ""), by_col.get(5, ""), by_col.get(6, "")
+            rows.append((book_of(s["title"]), s["number"], echo[:50], grade, here[:40], there[:50], ""))
+    random.Random(seed).shuffle(rows)
+    sample = sorted(rows[:n], key=lambda t: (t[0], t[1]))
+    head = (f"{len(rows)} unlisted echo rows in run {run} (tables 4 and 4e of the book pages, no cross reference "
+            f"between the verses); a sample of {len(sample)}, seed {seed}.  Grade each in the verdict column: "
+            f"real (a connection a reader would allow), idiom (the language's stock), coincidence (numbers, names), "
+            f"or unsure.")
+    return head, table(["book", "table", "echo", "grade", "here", "elsewhere", "verdict"], sample)
+
+
 def q_sql(db, run, sql):
     cur = db.execute(sql)
     columns = [d[0] for d in cur.description]
@@ -391,6 +430,7 @@ def main(argv):
     args = argv[1:]
     run = None
     out_name = None
+    seed = 1
     rest = []
     i = 0
     while i < len(args):
@@ -398,6 +438,8 @@ def main(argv):
             run = int(args[i + 1]); i += 2; continue
         if args[i] == "--out" and i + 1 < len(args):
             out_name = args[i + 1]; i += 2; continue
+        if args[i] == "--seed" and i + 1 < len(args):
+            seed = int(args[i + 1]); i += 2; continue
         rest.append(args[i]); i += 1
     command = rest[0].lower()
     db = connect()
@@ -415,6 +457,9 @@ def main(argv):
         head, body = q_declined(db, run)
     elif command == "listed":
         head, body = q_listed(db, run)
+    elif command == "unlisted":
+        n = int(rest[1]) if len(rest) > 1 else 100
+        head, body = q_unlisted(db, run, n, seed)
     elif command == "section" and len(rest) >= 3:
         head, body = q_section(db, run, " ".join(rest[1:-1]), rest[-1])
     elif command == "diff" and len(rest) == 3:

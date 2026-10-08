@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.1. Andrew Hopkins, with Claude.
+Version 0.3.2. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -206,6 +206,9 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.2: the `unlisted` sample on the Results menu (atlas_results.py of
+0.10.77).
 
 0.3.1: the `listed` results question and column help, with the
 main program's atlas_results.py and atlas_listed.py of 0.10.75.

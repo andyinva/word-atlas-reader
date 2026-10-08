@@ -7,7 +7,8 @@ list of known connections to tell them what they ought to find.  This
 module gives them one: the cross references in Bible Search Lite's
 bibles.db, the OpenBible.info set, which was built on the Treasury of
 Scripture Knowledge (1830s) and then voted on by readers for years,
-some 345,000 links each with its votes.  Used under its Creative
+some 345,000 listings (about half that many distinct pairs, since most
+are listed from both ends) each with its votes.  Used under its Creative
 Commons Attribution licence; the credit line is CREDIT below and goes
 into every table that draws on it.
 
@@ -76,7 +77,8 @@ class CrossRefs:
     def __init__(self, path=None):
         self.path = None
         self.available = False
-        self.by_verse = {}          # (book, chapter, verse) -> [(book, chapter, start, end, votes)]
+        self.rows = []              # one record per listing: (fb, fc, fs, fe, tb, tc, ts, te, votes)
+        self.by_verse = {}          # (book, chapter, verse) -> [(row index, side)]; side 0 = from, 1 = to
         self.count = 0
         for p in ([path] if path else candidate_paths()):
             if p and os.path.exists(p) and self._load(p):
@@ -98,19 +100,47 @@ class CrossRefs:
             db.close()
         except sqlite3.Error:
             return False
+        seen = {}
         for fb, fc, fs, fe, tb, tc, ts, te, votes in rows:
             if None in (fb, fc, fs, tb, tc, ts):
                 continue
             fe = fe or fs
             te = te or ts
+            # One record per link, found from either end: the set lists
+            # most pairs twice, once from each verse with its own votes,
+            # and a range on either side is one link however many verses
+            # it spans; the two listings of a pair fold to one record
+            # with the greater votes
             votes = int(votes or 0)
-            # Both directions: a link is a pair, whichever side listed it
+            this, other = (fb, fc, fs, fe), (tb, tc, ts, te)
+            key = (this, other) if this <= other else (other, this)
+            n = seen.get(key)
+            if n is not None:
+                row = self.rows[n]
+                if votes > row[8]:
+                    self.rows[n] = row[:8] + (votes,)
+                continue
+            n = len(self.rows)
+            seen[key] = n
+            self.rows.append((fb, fc, fs, fe, tb, tc, ts, te, votes))
             for v in range(fs, fe + 1):
-                self.by_verse.setdefault((fb, fc, v), []).append((tb, tc, ts, te, votes))
+                self.by_verse.setdefault((fb, fc, v), []).append((n, 0))
             for v in range(ts, te + 1):
-                self.by_verse.setdefault((tb, tc, v), []).append((fb, fc, fs, fe, votes))
-        self.count = len(rows)
+                self.by_verse.setdefault((tb, tc, v), []).append((n, 1))
+        self.count = len(self.rows)
         return True
+
+    def ends(self, n, side):
+        """The two ends of row n as (this side, other side), each (book, chapter, start, end)."""
+        fb, fc, fs, fe, tb, tc, ts, te, votes = self.rows[n]
+        this, other = (fb, fc, fs, fe), (tb, tc, ts, te)
+        return (this, other) if side == 0 else (other, this)
+
+    @staticmethod
+    def text(end):
+        """'Psalms 118:6-9' or 'Hebrews 13:6' for an end."""
+        book, ch, start, stop = end
+        return f"{book} {ch}:{start}" + (f"-{stop}" if stop != start else "")
 
     # --- lookups ------------------------------------------------------------------------
     def votes(self, ref_a, ref_b):
@@ -119,8 +149,10 @@ class CrossRefs:
         if not a or not b:
             return None
         best = None
-        for book, ch, start, end, votes in self.by_verse.get((a[0], a[1], a[2]), []):
+        for n, side in self.by_verse.get((a[0], a[1], a[2]), []):
+            _, (book, ch, start, end) = self.ends(n, side)
             if book == b[0] and ch == b[1] and (start <= b[2] <= end or start <= b[3] <= end):
+                votes = self.rows[n][8]
                 best = votes if best is None else max(best, votes)
         return best
 
@@ -139,31 +171,31 @@ class CrossRefs:
         The listed links from these verses with at least min_votes:
         to the books in other_books (every other book when None), or,
         with same_book set, within that book but to another chapter.
-        Returns {(from ref, to ref text): votes}, the to ref as a range
-        ('Psalms 36:8-9') when the list gives one.
+        Returns {row: (this end, other end, votes)}, each listing once
+        however many of these verses it spans, the ends as (book,
+        chapter, start, end) with this end the one in these verses.
         """
         out = {}
         for ref in refs:
             r = parse_ref(ref)
             if not r:
                 continue
-            for book, ch, start, end, votes in self.by_verse.get((r[0], r[1], r[2]), []):
+            for n, side in self.by_verse.get((r[0], r[1], r[2]), []):
+                if n in out:
+                    continue
+                this, other = self.ends(n, side)
+                votes = self.rows[n][8]
                 if votes < min_votes:
                     continue
+                book, ch = other[0], other[1]
                 if same_book is not None:
-                    if book != same_book or ch == r[1]:
+                    if book != same_book or ch == this[1]:
                         continue
                 elif other_books is not None and book not in other_books:
                     continue
-                elif other_books is None and book == r[0]:
+                elif other_books is None and book == this[0]:
                     continue
-                to = f"{book} {ch}:{start}" + (f"-{end}" if end != start else "")
-                key = (f"{r[0]} {r[1]}:{r[2]}", to)
-                # Within a book a link is listed from both ends; keep one
-                if same_book is not None and (ch, start) < (r[1], r[2]):
-                    key = (to, f"{r[0]} {r[1]}:{r[2]}")
-                if votes > out.get(key, -1):
-                    out[key] = votes
+                out[n] = (this, other, votes)
         return out
 
 
@@ -196,16 +228,17 @@ def found_pairs(sec):
     return pairs
 
 
-def covered(pair, found):
-    """Whether a listed link (from ref, to ref or range) is among the pairs a table found."""
-    f, t = pair
-    tr = parse_ref(t)
+def within(ref, end):
+    """Whether a verse reference falls inside an end (book, chapter, start, stop)."""
+    r = parse_ref(ref)
+    return bool(r) and r[0] == end[0] and r[1] == end[1] and end[2] <= r[2] <= end[3]
+
+
+def covered(link, found):
+    """Whether a listed link (this end, other end, votes) is lit by a pair a table found: one verse in each end."""
+    this, other, _ = link
     for a, b in found:
-        if a != f and b != f:
-            continue
-        other = b if a == f else a
-        o = parse_ref(other)
-        if o and tr and o[0] == tr[0] and o[1] == tr[1] and tr[2] <= o[2] <= tr[3]:
+        if (within(a, this) and within(b, other)) or (within(b, this) and within(a, other)):
             return True
     return False
 
@@ -226,20 +259,61 @@ def footer_for(sec, crossrefs, refs, other_books=None, same_book=None, what="oth
     # rows it shows, since a cap on rows is not a failure to find
     if found is None:
         found = found_pairs(sec)
-    missed = {pair: v for pair, v in links.items() if not covered(pair, found)}
-    held = len(links) - len(missed)
-    strong = {pair: v for pair, v in links.items() if v >= STRONG_VOTES}
-    strong_held = sum(1 for pair in strong if pair not in missed)
+    held = {n for n, link in links.items() if covered(link, found)}
+    # Kept on the section so that 4 and 4e can be reconciled once both
+    # exist (reconcile below): what one holds, the other need not call missed
+    sec.listed_links = {"links": links, "held": held, "what": what, "other": {}}
+    sec.footer.append(render_footer(sec))
+
+
+def render_footer(sec):
+    """The listed-links footer from the data kept on the section."""
+    data = sec.listed_links
+    links, held, what, other = data["links"], data["held"], data["what"], data["other"]
+    strong = {n for n, (a, b, v) in links.items() if v >= STRONG_VOTES}
     line = (f"Listed links ({MIN_VOTES} or more votes) from these verses to {what}: {len(links)}; "
-            f"this table holds {held} of them (counting every candidate echo, shown or not); "
-            f"of the {len(strong)} with {STRONG_VOTES} or more votes, {strong_held}.")
+            f"this table holds {len(held)} of them (counting every candidate echo, shown or not); "
+            f"of the {len(strong)} with {STRONG_VOTES} or more votes, {len(strong & held)}.")
+    # Links another echo table on the page holds are not misses of the
+    # page, only of this table: counted apart and left off the list
+    elsewhere = set()
+    for label, held_there in other.items():
+        found_there = (set(links) - held) & held_there
+        if found_there:
+            line += f"  {len(found_there)} more found by {label}."
+            elsewhere |= found_there
+    missed = {n: link for n, link in links.items() if n not in held and n not in elsewhere}
     if missed:
-        strongest = sorted(missed.items(), key=lambda kv: (-kv[1], kv[0]))[:NAME_MOST]
-        line += "  Strongest not found: " + "; ".join(f"{a} -> {b} ({v})" for (a, b), v in strongest)
+        strongest = sorted(missed.items(), key=lambda kv: (-kv[1][2], kv[0]))[:NAME_MOST]
+        line += "  Strongest not found: " + "; ".join(
+            f"{CrossRefs.text(a)} -> {CrossRefs.text(b)} ({v})" for n, (a, b, v) in strongest)
         if len(missed) > NAME_MOST:
             line += f"; and {len(missed) - NAME_MOST} more"
-        line += ("." if len(missed) <= NAME_MOST else ".")
-    sec.footer.append(line + "  " + CREDIT)
+        line += "."
+    return line + "  " + CREDIT
+
+
+def reconcile(report):
+    """
+    Once a page has both table 4 and table 4e, let each footer count
+    the links the other holds, so a quotation found in Greek is not
+    called a miss of the page under the English table, nor the reverse.
+    Called after 4e is built; a page with only one of the two is left
+    as it is.
+    """
+    from atlas_report import number_of
+    fours = [s for s in report.sections if number_of(s.title) == "4" and hasattr(s, "listed_links")]
+    four_es = [s for s in report.sections if number_of(s.title) == "4e" and hasattr(s, "listed_links")]
+    if not fours or not four_es:
+        return
+    held_4 = set().union(*(s.listed_links["held"] for s in fours))
+    held_4e = set().union(*(s.listed_links["held"] for s in four_es))
+    for s in fours:
+        s.listed_links["other"]["4e (in Greek)"] = held_4e
+    for s in four_es:
+        s.listed_links["other"]["4 (by English wording)"] = held_4
+    for s in fours + four_es:
+        s.footer = [render_footer(s) if f.startswith("Listed links (") else f for f in s.footer]
 
 
 LISTED_RE = re.compile(r"Listed links \((\d+) or more votes\) from these verses to (.+?): (\d+); this table holds (\d+)"
