@@ -287,9 +287,37 @@ def _():
     assert w.help_mode.active
     w.help_mode.set_active(False)
     assert not w.help_btn.isChecked()
-    # A search and a question go into their drop-downs and the settings
+    # The Search button is green while the box holds an unsent search,
+    # plain after the search runs or the box is emptied
+    w.search_edit.setText("H426")
+    assert w.search_button.styleSheet(), "Search button not green with text waiting"
+    w.search()
+    assert not w.search_button.styleSheet(), "Search button still green after the search"
+    w.search_edit.setText("H426 ")
+    assert not w.search_button.styleSheet(), "the same search again should not be green"
+    w.search_edit.setText("H427")
+    assert w.search_button.styleSheet()
+    w.search_edit.setText("")
+    assert not w.search_button.styleSheet()
     w.search_edit.setText("H426")
     w.search()
+    # The Questions dialog lists the whole file of questions, filters, and hands one back
+    import reader_questions
+    d = R.QuestionsDialog(w)
+    rows = [d.list.item(i) for i in range(d.list.count())]
+    picks = [r for r in rows if r.data(R.Qt.ItemDataRole.UserRole)]
+    assert len(picks) == len(reader_questions.all_questions()) >= 200, len(picks)
+    d.filter_edit.setText("Septuagint")
+    rows = [d.list.item(i) for i in range(d.list.count())]
+    picks = [r for r in rows if r.data(R.Qt.ItemDataRole.UserRole)]
+    assert picks and all("septuagint" in p.data(R.Qt.ItemDataRole.UserRole).lower() for p in picks)
+    d.pick(picks[0])
+    assert d.chosen == picks[0].data(R.Qt.ItemDataRole.UserRole)
+    # The Ask button likewise, for the question box
+    w.question_edit.setPlainText("Why?")
+    assert w.ask_button.styleSheet(), "Ask button not green with a question waiting"
+    w.question_edit.setPlainText("")
+    assert not w.ask_button.styleSheet()
     assert w.search_box.itemText(0) == "H426"
     assert "H426" in reader_data.load_settings().get("history", {}).get("search", [])
     # Starter questions sit in the box before any has been asked, and

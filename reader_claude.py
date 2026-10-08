@@ -78,7 +78,9 @@ The tables most questions want, by sections.number (titles vary by book):
   richness, 1e/1f Septuagint vocabulary and leanings (New Testament books),
   2 signature formulas, 3.1 to 3.5 neighbors of the leading words,
   4 echoes with other books, 4a echo partners, 4a2 who reads whom,
-  4b echoes by chapter, 4e Septuagint echoes in Greek, 4f English echoes
+  4b echoes by chapter, 4e Septuagint echoes in Greek (a 'listed' column
+  gives readers' votes for a cross reference between the two verses;
+  blank, none listed), 4f English echoes
   not confirmed in Greek, 5 reach and depth, 6 echoes within the book,
   6b refrains, 6c kin chapters, 6d shared vocabulary, 7 sections
   (parts of the book), 7b section against section, 7c reach and depth by

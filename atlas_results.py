@@ -13,6 +13,7 @@ reviewer) reads the answer the same way as a dossier.
     python3 atlas_results.py deltas                   every function-word Delta of a part from its rest (7d, 7.2d ...)
     python3 atlas_results.py seams                    the seams between the two taggings 4e found, counted across the canon
     python3 atlas_results.py declined                 every table that declined to measure, with its reason
+    python3 atlas_results.py listed                   the echo tables (4, 4e, 6) against the cross references, book by book
     python3 atlas_results.py section Isaiah 7d        one section of one page, as stored
     python3 atlas_results.py diff 1 2                 the cells that differ between two runs, page by page
     python3 atlas_results.py sql "SELECT ..."         any query, printed as a table
@@ -35,6 +36,7 @@ import sqlite3
 import sys
 
 from atlas_report import is_numeric_cell   # one alignment rule for pages and results
+from atlas_listed import parse_footer         # the listed-links footer read back
 
 PROGRAM_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_PATH = os.path.join(PROGRAM_DIR, "reports", "results.db")
@@ -335,6 +337,45 @@ def q_diff(db, run_a, run_b):
     return head, body
 
 
+def q_listed(db, run):
+    """
+    The outside check across a run: for every book page's tables 4, 4e
+    and 6, how many of the well-voted cross references (OpenBible.info
+    on the Treasury of Scripture Knowledge) from the book's verses the
+    table holds, from the footers the pages wrote.  'held' is the count
+    the table reached, 'listed' the count to reach; the share is the
+    recall of the echo layer against readers' own linking.
+    """
+    rows = []
+    for r in db.execute(
+            "SELECT p.title, s.number, f.text FROM footers f JOIN sections s USING (section_id) "
+            "JOIN pages p USING (page_id) WHERE p.run_id = ? AND p.kind = 'Book' AND s.number IN ('4', '4e') "
+            "AND f.text LIKE 'Listed links (%' ORDER BY p.page_id, s.number", (run,)):
+        parsed = parse_footer(r["text"])
+        if parsed:
+            _, what, listed, held, strong, strong_held = parsed
+            share = round(100 * held / listed) if listed else None
+            rows.append((book_of(r["title"]), r["number"], what, listed, held, share, strong, strong_held))
+    # Table 6 writes its own form: links between chapters, and how many lit
+    for r in db.execute(
+            "SELECT p.title, f.text FROM footers f JOIN sections s USING (section_id) JOIN pages p USING (page_id) "
+            "WHERE p.run_id = ? AND p.kind = 'Book' AND s.number = '6' AND f.text LIKE 'Listed links (%' "
+            "ORDER BY p.page_id", (run,)):
+        m = re.search(r"between different chapters of .+?: (\d+); (\d+) fall on a pair the map lights", r["text"])
+        if m:
+            listed, lit = int(m.group(1)), int(m.group(2))
+            rows.append((book_of(r["title"]), "6", "its own chapters", listed, lit,
+                         round(100 * lit / listed) if listed else None, "-", "-"))
+    rows.sort(key=lambda t: (t[1], -(t[5] or -1), t[0]))
+    total_listed = sum(t[3] for t in rows if t[1] == "4")
+    total_held = sum(t[4] for t in rows if t[1] == "4")
+    head = (f"The echo tables against the cross references (OpenBible.info on the Treasury of Scripture "
+            f"Knowledge, links with 10 or more votes): how many of the listed links from each book's verses the "
+            f"table holds.  Table 4 over the run: {total_held} of {total_listed} held"
+            + (f" ({round(100 * total_held / total_listed)}%)" if total_listed else "") + ".")
+    return head, table(["book", "table", "links to", "listed", "held", "held %", "100+ votes", "held"], rows)
+
+
 def q_sql(db, run, sql):
     cur = db.execute(sql)
     columns = [d[0] for d in cur.description]
@@ -372,6 +413,8 @@ def main(argv):
         head, body = q_seams(db, run)
     elif command == "declined":
         head, body = q_declined(db, run)
+    elif command == "listed":
+        head, body = q_listed(db, run)
     elif command == "section" and len(rest) >= 3:
         head, body = q_section(db, run, " ".join(rest[1:-1]), rest[-1])
     elif command == "diff" and len(rest) == 3:

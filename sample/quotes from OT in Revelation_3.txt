@@ -1,0 +1,59 @@
+WORD ATLAS READER  -  a question answered by Claude
+####################################################
+Dataset: word_atlas_0.10.69_2026-10-05.wadb, run 1.  Asked 2026-10-07 09:36, model claude-sonnet-5-5.
+
+Question
+========
+Can you find groups of words used in Revelation that are taken from Jeremiah 51?
+
+Answer
+======
+Yes, but only a little. The dataset finds two word groups in Revelation that match Jeremiah 51, and both rest on the same verse, Jeremiah 51:7.
+
+**1. "a golden cup" (Revelation 17:4 and Jeremiah 51:7).**
+- This comes from the Revelation Book page, section 4, "Echoes [Revelation] -> other books". It is also in the Section page [Revelation: Babylon and the new Jerusalem], section 4 (row 56).
+- The grade cell is blank, so it is not marked as a "quotation". Only a reading of the two passages can say whether it is an allusion or a shared idiom.
+
+**2. "babylon, cup, wine" (Revelation 16:19 and Jeremiah 51:7).**
+- This comes from the Chapter page [Revelation 16], section 6, "Kin [Revelation 16]: chapters sharing rare words in any order". Jeremiah 51 is the kin chapter listed.
+- It has a score of 38, with 3 shared words, all 3 in order. It was found by English wording.
+
+**Chapter-level pattern.** In section 4b, "Echoes by chapter" (Book page, and the Section page for chapters 17 to 22), Revelation 17's echoes point most to 1 Kings 10 (weight 42), then Daniel 7 (31), then Jeremiah 51 (30). So Jeremiah 51 is a real secondary source for that chapter, but not the main one.
+
+**Caveats**
+- I found no Jeremiah 51 rows in section 4e (Septuagint echoes in Greek). One row there cites "Jeremiah 44:13 (Rahlfs 51:13)", but that is KJV Jeremiah 44, not Jeremiah 51. It covers the phrase "with sword and with famine and with plague" in Revelation 6:8.
+- So the Greek-level check does not confirm either Jeremiah 51 echo. They rest on English wording and shared rare words.
+- I could not find an echo for other well-known Babylon parallels, such as "Babylon is fallen". The tables only list runs that appear in few verses, so those phrases may be too common to show up.
+- The page open in the Reader (Ezra) has nothing to do with this question. The figures above all come from the Revelation pages.
+
+The queries Claude ran
+======================
+SELECT page_id, run_id, name, title, kind FROM pages WHERE title LIKE '%Revelation%' OR title LIKE '%Jeremiah%' LIMIT 50
+
+SELECT s.section_id, s.number, s.title, s.columns, s.n_rows, s.note FROM sections s WHERE s.page_id=28 AND s.number IN ('4','4a','4a2','4b','4e','4f') LIMIT 20
+
+SELECT c.section_id, c.row, c.column, c.value FROM cells c WHERE c.section_id IN (162,168,169) AND c.row IN (SELECT row FROM refs WHERE section_id=c.section_id AND reference LIKE 'Jeremiah 51:%') ORDER BY c.section_id,c.row,c.col LIMIT 200
+
+SELECT section_id, count(*) FROM refs WHERE section_id IN (162,164,168,169) AND reference LIKE '%Jeremiah 51%' GROUP BY section_id
+
+SELECT section_id, row, reference FROM refs WHERE section_id IN (162,164,168,169) AND reference LIKE '%Jer%' LIMIT 40
+
+SELECT section_id, row, col, value FROM cells WHERE section_id IN (162,164,168,169) AND value LIKE '%Jer%' LIMIT 40
+
+SELECT p.name, s.section_id, s.number, s.title, c.row, c.column, c.value FROM cells c JOIN sections s ON s.section_id=c.section_id JOIN pages p ON p.page_id=s.page_id WHERE p.run_id=1 AND (p.name LIKE '%revelation%') AND p.kind IN ('Chapter','Section') AND (c.value LIKE '%Jeremiah 51%' or c.value LIKE '%Rahlfs 28:%') LIMIT 50
+
+SELECT section_id, row, value FROM cells WHERE section_id IN (162,168) AND row IN (51,10) ORDER BY section_id,row,col
+
+SELECT c.row, c.column, c.value FROM cells c WHERE c.section_id=250 AND c.row=56 ORDER BY col
+
+SELECT section_id, row, reference FROM refs WHERE section_id IN (250,321,253) AND reference LIKE 'Jeremiah 51%' LIMIT 40
+
+SELECT p.name, s.section_id, s.number, s.title FROM sections s JOIN pages p ON p.page_id=s.page_id WHERE p.run_id=1 AND p.name IN ('section_revelation_17_22','chapter_revelation_18','chapter_revelation_17','book_revelation') AND (s.title LIKE '%Echo%' OR s.title LIKE '%Parallel%' OR s.title LIKE '%Kin%')
+
+SELECT row, column, value FROM cells WHERE section_id=321 AND row=1 ORDER BY col
+
+SELECT row, column, value FROM cells WHERE section_id IN (165) AND value LIKE '%Jeremiah 51%'
+
+SELECT s.section_id, s.number, s.title, c.row, c.column, c.value FROM cells c JOIN sections s ON s.section_id=c.section_id WHERE s.page_id IN (28,38,56,55,54) AND c.value LIKE '%Jeremiah 51%' LIMIT 30
+
+SELECT row, column, value FROM cells WHERE section_id=165 AND row=16 ORDER BY col

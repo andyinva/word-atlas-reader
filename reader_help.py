@@ -29,7 +29,8 @@ HELP = {
     "search": "Search every cell, section title and footer of the run for this text (case does not matter): "
               "a word, a Strong's number such as H1005 or G2962, a phrase.  Press Enter or the button; "
               "the hits appear on the Search tab, and double-clicking a hit opens its page at that table.  "
-              "The arrow at the right lists earlier searches.",
+              "The arrow at the right lists earlier searches.  The Search button turns green while the box "
+              "holds something not yet searched.",
     "filter": "Narrow the page list to titles containing this text: a book name, a chapter number, "
               "'Section', 'Compare'.",
     "pages": "The pages the run holds, grouped by kind: Book, Chapter, Section, Passage, Word, Kin, "
@@ -57,10 +58,15 @@ HELP = {
     "question": "A question about the dataset, in plain words.  Claude answers it by writing SQL queries "
                 "against the open file (read-only) and reading the rows back, then says where each figure "
                 "came from.  The box above lists earlier questions.",
+    "questions": "A list of some two hundred questions to put to the dataset, grouped by subject (the signature "
+                 "words, the function words, the Septuagint, echoes, the parts of a book, the whole file, "
+                 "method and caution).  Filter by a word, double-click one to put it in the box, then change "
+                 "the book or the word to suit.  'This book' means the page open in the Reader, which goes to "
+                 "Claude with every question.",
     "past_questions": "Earlier questions, then a set of starter questions to try; choose one to put it in the "
                       "box.  The first starter, 'What can I ask about this dataset?', has Claude describe what "
                       "the file holds and suggest questions of its own.",
-    "ask": "Send the question to Claude with your API key (File > Claude settings), or with the guest key "
+    "ask": "Send the question to Claude (green while the box holds a question not yet asked) with your API key (File > Claude settings), or with the guest key "
            "built into this copy while it lasts.  Each question costs a few cents; only the rows Claude asks "
            "for travel, never the whole file.",
     "copy_prompt": "No API key?  This puts the question, the schema and the open page on the clipboard as a "
@@ -75,7 +81,11 @@ HELP = {
 }
 
 # The column headings of the tables, copied from the main program
-COLUMN_HELP = {'-i/-nu': '-i/-nu (H9020, H9030, H9040, H9025, H9035, H9045): first person suffixes (my, me, our, '
+COLUMN_HELP = {
+ 'listed': "The readers' votes for a cross reference between a verse on each side of this echo, from the "
+           "OpenBible.info set built on the Treasury of Scripture Knowledge.  A figure means the connection "
+           "was already known; blank means no link is listed, so the echo is a new find or a false one.  A "
+           "listed link may be a shared theme or name as easily as a quotation.",'-i/-nu': '-i/-nu (H9020, H9030, H9040, H9025, H9035, H9045): first person suffixes (my, me, our, '
            'us).  Occurrences per 1,000 tokens of the text (King James tokens for a Greek book, '
            'Hebrew elements for a Hebrew one).',
  '-ka': '-ka (H9021, H9022, H9031, H9032, H9041, H9042, H9026, H9027, H9036, H9037, H9046, H9047): '

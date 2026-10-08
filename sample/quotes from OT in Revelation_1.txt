@@ -1,0 +1,83 @@
+WORD ATLAS READER  -  a question answered by Claude
+####################################################
+Dataset: word_atlas_0.10.69_2026-10-05.wadb, run 1.  Asked 2026-10-07 09:15, model claude-sonnet-5-5.
+
+Question
+========
+Can you find groups of words used in Revelation that are taken from old testament books like Jeremaih, Ezekiel, Isaiah and other books?
+
+Answer
+======
+Yes. Revelation's book page (section 4, "Echoes [Revelation] -> other books") lists these shared word groups. You have the Ezra page open, but everything below comes from the Revelation book page, so you will need to open that one. The Old Testament partners come out as follows.
+
+**Which Old Testament books Revelation shares the most with (section 4a, "Echo partners")**
+
+| Partner | Echoes | Weight | Obs/exp |
+|---|---|---|---|
+| Daniel | 45 | 788 | 4.16 |
+| Psalms | 42 | 640 | 1.06 |
+| Isaiah | 35 | 542 | 1.01 |
+| Deuteronomy | 29 | 443 | 1.10 |
+| Exodus | 24 | 399 | 0.79 |
+| Jeremiah | 21 | 310 | 0.53 |
+| Ezekiel | 19 | 298 | 0.52 (marked "few") |
+
+- Daniel is the standout. Its rate is about four times what its length alone would predict.
+- Isaiah and Psalms are about what chance would predict.
+- Jeremiah and Ezekiel are below chance. They have fewer than 20 echoes each, so the page says not to read their ratios closely.
+
+**Example word groups (section 4a2, "Who reads whom", and section 4, "Echoes")**
+
+- **Isaiah:**
+  - "holy holy holy" (Rev 4:8, Isa 6:3).
+  - "babylon is fallen is fallen" (Rev 14:8, Isa 21:9). This is graded as a quotation by English wording only.
+  - "four corners of the earth" (Rev 7:1, Isa 11:12), also by English wording.
+- **Jeremiah:**
+  - "that sitteth upon the throne" (Rev 5:13, Jer 29:16), by English wording.
+  - "weeping and wailing" (Rev 18:15, Jer 9:10).
+  - "the sun and the moon" (Rev 12:1, Jer 8:2).
+- **Ezekiel:**
+  - "the earth in the sight" (Rev 13:13, Ezek 28:18), by English wording.
+  - "be thrown down" (Rev 18:21, Ezek 38:20).
+  - "decked with gold" (Rev 17:4, Ezek 16:13).
+- **Daniel:**
+  - "ten thousand times ten thousand" (Rev 5:11, Dan 7:10).
+  - "a mouth speaking great things" (Rev 13:5, Dan 7:8).
+  - "found written in the book" (Rev 20:15, Dan 12:1).
+- **Other books:**
+  - Psalms: "shall come and worship before" (Rev 15:4, Ps 86:9).
+  - Deuteronomy: "the blood of his servants" (Rev 19:2, Deut 32:43).
+  - Exodus: "hail and fire mingled" (Rev 8:7, Ex 9:24).
+
+**Confirmed in the Greek (section 4e, "Septuagint echoes")**
+
+This table checks the runs in the Greek text, so it is firmer evidence than English wording. These are the matches for Isaiah, Jeremiah and Ezekiel:
+
+- **Ezekiel:**
+  - Rev 1:15, 14:2 and 19:6 all echo Ezek 1:24, "voice or sound of many waters" (quotation grade).
+  - Rev 21:12 echoes Ezek 47:13, "the twelve tribes" (quotation grade).
+  - Rev 9:13 echoes Ezek 43:20, "the four horns of the altar" (quotation grade).
+  - Rev 21:16 echoes Ezek 40:5, "the height of it equal".
+- **Jeremiah:**
+  - Rev 6:8 echoes Jer 44:13 (Rahlfs 51:13), "with sword and with famine and with plague" (quotation grade).
+  - Rev 14:8 echoes Jer 25:15 (Rahlfs 32:15), "she has given to drink all the Gentiles".
+- **Isaiah:**
+  - Rev 4:8 echoes Isa 6:3, "Holy Holy Holy Lord" (quotation grade).
+  - Rev 18:8 echoes Isa 51:22, "Lord God the having judged" (quotation grade).
+  - Rev 14:7 echoes Isa 51:13, "the having made heaven and the earth" (quotation grade, one word apart).
+  - Rev 7:17 and 21:4 echo Isa 25:8, "God every tear".
+  - Rev 11:19 echoes Isa 29:6, "thunders and an earthquake".
+
+The page itself says that only reading the two passages can show whether an echo is a quotation, an allusion or a shared idiom. Section 4f ("Quoted by English, not in the Septuagint's words") lists the English-only echoes that the Greek does not confirm.
+
+The queries Claude ran
+======================
+SELECT page_id, run_id, name, title, kind FROM pages WHERE title LIKE '%Revelation%' ORDER BY run_id LIMIT 20
+
+SELECT section_id, number, title, columns, n_rows, note FROM sections WHERE page_id=28 AND (number LIKE '4%' OR number LIKE '2%' OR number LIKE '6%') ORDER BY position
+
+SELECT r, MAX(CASE WHEN "column"='partner book' THEN value END) pb, MAX(CASE WHEN "column"='echoes' THEN value END) e, MAX(CASE WHEN "column"='weight' THEN value END) w, MAX(CASE WHEN "column"='obs/exp' THEN value END) oe, MAX(CASE WHEN "column"='in time' THEN value END) t FROM (SELECT row r, "column", value FROM cells WHERE section_id=163) GROUP BY r ORDER BY r LIMIT 30
+
+SELECT row, MAX(CASE WHEN "column"='partner book' THEN value END) pb, MAX(CASE WHEN "column"='echoes' THEN value END) e, MAX(CASE WHEN "column"='quotation grade' THEN value END) q, MAX(CASE WHEN "column"='rarest echoes (here -> there)' THEN value END) rare FROM cells WHERE section_id=164 GROUP BY row ORDER BY row LIMIT 30
+
+SELECT row, MAX(CASE WHEN "column"='gloss' THEN value END) g, MAX(CASE WHEN "column"='grade' THEN value END) gr, MAX(CASE WHEN "column"='here' THEN value END) h, MAX(CASE WHEN "column"='Septuagint' THEN value END) s FROM cells WHERE section_id=168 GROUP BY row HAVING s LIKE 'Isaiah%' OR s LIKE 'Jeremiah%' OR s LIKE 'Ezekiel%' OR s LIKE 'Jer%' OR s LIKE 'Ezek%' OR s LIKE 'Isa%' ORDER BY row LIMIT 40

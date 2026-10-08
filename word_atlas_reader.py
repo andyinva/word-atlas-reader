@@ -28,7 +28,8 @@ from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut, QTextCursor
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
                              QPlainTextEdit, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
-                             QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+                             QListWidget, QListWidgetItem, QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem,
+                             QVBoxLayout, QWidget)
 
 import atlas_results
 from atlas_report import render, is_numeric_cell
@@ -36,10 +37,19 @@ from reader_data import Dataset, load_settings, save_settings
 from reader_claude import DEFAULT_MODEL, STARTER_QUESTIONS, ApiError, clipboard_prompt, list_models, start_worker
 from reader_help import HelpMode, column_help
 import reader_guest
+import reader_questions
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
+# A button turns this green while the box beside it holds something
+# not yet sent: a reminder that a click or Enter is still wanted
+READY_STYLE = "QPushButton { background-color: #3a9a3a; color: white; font-weight: bold; }"
+
+
+def mark_ready(button, on):
+    """Colour a button green (on) or restore its usual look (off)."""
+    button.setStyleSheet(READY_STYLE if on else "")
 
 
 def mono_font():
@@ -164,6 +174,67 @@ class SettingsDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# The Questions dialog: a long list to pick from, grouped by subject
+# ---------------------------------------------------------------------------
+
+class QuestionsDialog(QDialog):
+    """Two hundred questions to put to the dataset, filtered by a word, chosen by a double-click."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Questions to ask")
+        self.resize(760, 560)
+        self.chosen = None
+        box = QVBoxLayout(self)
+        box.addWidget(QLabel("Double-click a question to put it in the box, then change the book or the word "
+                             "to suit.  'This book' means the page open in the Reader."))
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("show only questions containing ...")
+        self.filter_edit.textChanged.connect(self.fill)
+        box.addWidget(self.filter_edit)
+        self.list = QListWidget()
+        self.list.setWordWrap(True)
+        self.list.itemDoubleClicked.connect(self.pick)
+        box.addWidget(self.list, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Use this question")
+        buttons.accepted.connect(self.accept_current)
+        buttons.rejected.connect(self.reject)
+        box.addWidget(buttons)
+        self.fill()
+
+    def fill(self, text=""):
+        """List the questions, each group under a heading, keeping only those containing the filter text."""
+        text = (text or "").strip().lower()
+        self.list.clear()
+        for group, questions in reader_questions.QUESTIONS.items():
+            kept = [q for q in questions if text in q.lower()]
+            if not kept:
+                continue
+            head = QListWidgetItem(group)
+            head.setFlags(Qt.ItemFlag.NoItemFlags)
+            font = head.font()
+            font.setBold(True)
+            head.setFont(font)
+            self.list.addItem(head)
+            for q in kept:
+                item = QListWidgetItem("    " + q)
+                item.setData(Qt.ItemDataRole.UserRole, q)
+                self.list.addItem(item)
+
+    def pick(self, item):
+        if item.data(Qt.ItemDataRole.UserRole):
+            self.chosen = item.data(Qt.ItemDataRole.UserRole)
+            self.accept()
+
+    def accept_current(self):
+        item = self.list.currentItem()
+        if item is not None and item.data(Qt.ItemDataRole.UserRole):
+            self.chosen = item.data(Qt.ItemDataRole.UserRole)
+            self.accept()
+
+
+# ---------------------------------------------------------------------------
 # The window
 # ---------------------------------------------------------------------------
 
@@ -205,7 +276,8 @@ class ReaderWindow(QMainWindow):
         results = self.menuBar().addMenu("&Results")
         for name, label in [("runs", "&Runs in this file"), ("shares", "Septuagint &shares (1f)"),
                             ("deltas", "Function-word &Deltas (7d)"), ("seams", "Echo s&eams (4e)"),
-                            ("declined", "Tables that &declined")]:
+                            ("declined", "Tables that &declined"),
+                            ("listed", "Echo tables against the cross references (&listed)")]:
             self._action(results, label, lambda checked=False, n=name: self.run_results(n))
         results.addSeparator()
         self._action(results, "&Diff two runs...", self.diff_runs)
@@ -244,10 +316,12 @@ class ReaderWindow(QMainWindow):
         self.search_box.activated.connect(lambda i: self.search())
         self.fill_history(self.search_box, "search")
         bar.addWidget(self.search_box, 2)
-        go = QPushButton("Search")
-        go.setProperty("help", "search")
-        go.clicked.connect(self.search)
-        bar.addWidget(go)
+        self.search_button = QPushButton("Search")
+        self.search_button.setProperty("help", "search")
+        self.search_button.clicked.connect(self.search)
+        bar.addWidget(self.search_button)
+        # Green while the box holds a search not yet run
+        self.search_edit.textChanged.connect(self.search_text_changed)
         bar.addSpacing(12)
         # The help switch: a checkable ? button, or F1
         self.help_btn = QPushButton("?")
@@ -405,6 +479,7 @@ class ReaderWindow(QMainWindow):
         self.question_edit.setProperty("help", "question")
         box.addWidget(self.question_edit)
         row = QHBoxLayout()
+        self.question_edit.textChanged.connect(self.question_text_changed)
         self.ask_button = QPushButton("Ask Claude")
         self.ask_button.setProperty("help", "ask")
         self.ask_button.clicked.connect(self.ask_claude)
@@ -415,6 +490,11 @@ class ReaderWindow(QMainWindow):
                         "claude.ai or any assistant.")
         copy.clicked.connect(self.copy_prompt)
         row.addWidget(copy)
+        questions = QPushButton("Questions...")
+        questions.setProperty("help", "questions")
+        questions.setToolTip("A long list of questions to pick from, grouped by subject")
+        questions.clicked.connect(self.pick_question)
+        row.addWidget(questions)
         self.save_answer_button = QPushButton("Save answer as text...")
         self.save_answer_button.setProperty("help", "save_answer")
         self.save_answer_button.setToolTip("Write the question, the answer and the queries to a text file")
@@ -471,6 +551,13 @@ class ReaderWindow(QMainWindow):
         if box.isEditable():
             box.setEditText(current)
         box.blockSignals(False)
+
+    def pick_question(self):
+        """Open the Questions list and put the chosen one in the box."""
+        dialog = QuestionsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.chosen:
+            self.question_edit.setPlainText(dialog.chosen)
+            self.tabs.setCurrentIndex(4)
 
     def past_question_chosen(self, index):
         text = self.past_box.itemText(index)
@@ -643,11 +730,18 @@ class ReaderWindow(QMainWindow):
                 return
 
     # --- search --------------------------------------------------------------------------
+    def search_text_changed(self, text):
+        """The Search button goes green while the box holds something not yet searched."""
+        text = text.strip()
+        mark_ready(self.search_button, bool(text) and text != getattr(self, "last_search", None))
+
     def search(self):
         text = self.search_edit.text().strip()
         if self.data is None or not text:
             return
         hits = self.data.search(self.run_id, text)
+        self.last_search = text
+        mark_ready(self.search_button, False)
         self.remember("search", text)
         self.fill_history(self.search_box, "search")
         self.search_grid.setRowCount(0)
@@ -688,7 +782,7 @@ class ReaderWindow(QMainWindow):
             return
         question = {"runs": atlas_results.q_runs, "shares": atlas_results.q_shares,
                     "deltas": atlas_results.q_deltas, "seams": atlas_results.q_seams,
-                    "declined": atlas_results.q_declined}[name]
+                    "declined": atlas_results.q_declined, "listed": atlas_results.q_listed}[name]
         try:
             head, body = question(self.data.db, self.run_id)
         except Exception as e:
@@ -770,11 +864,18 @@ class ReaderWindow(QMainWindow):
             return
         model = self.settings.get("model", DEFAULT_MODEL)
         self.remember("questions", question)
+        self.last_question = question
+        mark_ready(self.ask_button, False)
         self.fill_history(self.past_box, "questions", blank_first=True, starters=STARTER_QUESTIONS)
         self.ask_button.setEnabled(False)
         self.answer_view.setPlainText("Asking " + model + " ...")
         self.queries_view.setPlainText("")
-        self.thread, self.worker = start_worker(self, self.data.db_path, question, key, model, self.run_id,
+        # The open page goes with the question, so "this book" and "this
+        # page" mean what the reader is looking at
+        sent = question
+        if self.report is not None:
+            sent += f"\n\n(The page open in the Reader is: {self.report.title}.)"
+        self.thread, self.worker = start_worker(self, self.data.db_path, sent, key, model, self.run_id,
                                                 self.data.schema_text())
         self.worker.progress.connect(self.query_ran)
         self.worker.finished.connect(self.answered)
@@ -782,6 +883,11 @@ class ReaderWindow(QMainWindow):
 
     def query_ran(self, sql):
         self.queries_view.appendPlainText(sql.strip() + "\n")
+
+    def question_text_changed(self):
+        """The Ask button goes green while the box holds a question not yet asked."""
+        text = self.question_edit.toPlainText().strip()
+        mark_ready(self.ask_button, bool(text) and text != getattr(self, "last_question", None))
 
     def answered(self, answer, queries):
         self.answer_view.setMarkdown(answer)

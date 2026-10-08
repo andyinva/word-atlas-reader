@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.0. Andrew Hopkins, with Claude.
+Version 0.3.1. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -69,21 +69,29 @@ table's note is above the grid and its footer lines below.
 
 The **Search** box at the top looks through every cell, section title
 and footer of the run. Double-click a hit to open its page at that
-table. The arrow at the box's right lists earlier searches.
+table. The arrow at the box's right lists earlier searches, and the
+Search button turns green while the box holds something not yet
+searched; the Ask Claude button does the same for a question.
 
 The **Results** menu asks the questions `atlas_results.py` asks of the
 main program's database: the runs in the file, the Septuagint shares
 of every New Testament book (1f), every part's function-word Delta
 against its rest (7d), the echo seams (4e), the tables that declined
-and why, and a diff of two runs cell by cell when the file holds more
-than one run.
+and why, the echo tables against the cross references (the `listed` footers
+of 4, 4e and 6, from Word Atlas 0.10.75 on), and a diff of two runs
+cell by cell when the file holds more than one run.
 
 The **Ask Claude** tab sends a question about the dataset to Claude;
 a "Past questions" box above it lists earlier ones, then a set of
 starter questions to try. The first starter, "What can I ask about
 this dataset?", has Claude describe what the file holds and suggest
 questions; another asks what the sections on a book page are. Claude
-can explain the dataset as well as answer from it. "Save answer as
+can explain the dataset as well as answer from it. "Questions..."
+opens a list of some two hundred questions grouped by subject (the
+signature words, function words, the Septuagint, echoes, the parts of
+a book, the whole file, method and caution) to filter and pick from;
+"this book" in a question means the page open in the Reader, which
+goes to Claude with every question. "Save answer as
 text" writes the question, the answer and the queries Claude ran to
 a text file, headed with the dataset, the run, the time and the model.
 Claude is given one tool, a read-only SQL query against the open
@@ -147,9 +155,11 @@ be thought of as a small prepaid card, never as a secret.
 | `reader_claude.py` | the Claude panel's API call, the SQL tool, the worker thread |
 | `reader_guest.py` | the guest key: `make` writes `guest_key.dat`, `show` reports it |
 | `guest_key.dat` | a scrambled guest key with its end date, when a copy carries one; never committed |
+| `reader_questions.py` | the Questions list, grouped by subject |
 | `reader_help.py` | help mode and the column explanations (copied from the main program's atlas_help.py) |
 | `atlas_report.py` | the page layout, shared with the main program |
 | `atlas_results.py` | the results questions, shared with the main program |
+| `atlas_listed.py` | reads the listed-links footers back (shared with the main program) |
 | `test_reader.py` | the test script: `python3 test_reader.py` before every commit |
 | `word_atlas_reader.spec` | the PyInstaller build file |
 | `sample/` | a sample dataset (Ezra, Revelation, 1 Kings from Word Atlas 0.10.69) |
@@ -197,9 +207,15 @@ the nearest equivalent.)
 
 ## Versions
 
+0.3.1: the `listed` results question and column help, with the
+main program's atlas_results.py and atlas_listed.py of 0.10.75.
+
 0.3.0: a guest key for copies given away (reader_guest.py), used
 until its end date, never shown, replaced by the user's own key;
-Save answer as text on the Ask Claude tab.
+Save answer as text on the Ask Claude tab; the Search and Ask
+buttons turn green while their box holds something not yet sent;
+the Questions list (reader_questions.py, 204 questions in 18 groups);
+the open page is sent with every question.
 
 0.2.2: starter questions in the Past questions box; Claude's
 instructions say to explain the dataset and its sections when asked.

@@ -1,0 +1,39 @@
+WORD ATLAS READER  -  a question answered by Claude
+####################################################
+Dataset: word_atlas_0.10.69_2026-10-05.wadb, run 1.  Asked 2026-10-07 09:33, model claude-sonnet-5-5.
+
+Question
+========
+Can you find groups of words used in Revelation that are taken from Jeremiah?
+
+Answer
+======
+Yes. The Revelation book page has several word groups shared with Jeremiah. The tables only show that the two books share the wording. Only reading the passages can say whether Revelation quotes Jeremiah.
+
+**Overall (Book page [Revelation], 4a. Echo partners).** Jeremiah appears as an earlier partner with 21 distinct echoes and a weight of 310. Its obs/exp is 0.53, which means fewer echoes than Jeremiah's length alone would predict. So Jeremiah is a modest source for Revelation, not a heavy one.
+
+**English word groups (4a2. Who reads whom, Jeremiah row; 4. Echoes, for the second item):**
+- "that sitteth upon the throne": Revelation 5:13 with Jeremiah 29:16. This is the only echo flagged "q, by English". That marks it as quotation grade by English wording alone, which is weaker evidence because the translators' idiom could account for it.
+- "weeping and wailing": Revelation 18:15 and 18:19 with Jeremiah 9:10. Esther 4:3 has it too.
+- "the sun and the moon": Revelation 12:1 with Jeremiah 8:2.
+
+**Greek word groups (4e. Septuagint echoes, Greek Old Testament):**
+- ἐν ῥομφαίᾳ καὶ ἐν λιμῷ καὶ ἐν θανάτῳ, "with sword and with famine and with plague". It is in Revelation 6:8 and Jeremiah 44:13 (Rahlfs 51:13). It has 8 words and is graded "quotation", the strongest grade in that table.
+- πεπότικεν πάντα τὰ ἔθνη, "she has given to drink all the Gentiles". It is in Revelation 14:8 and Jeremiah 25:15 (Rahlfs 32:15). It has 4 words and no quotation grade.
+- ποιήσαντι τὸν οὐρανὸν καὶ τὴν γῆν, "having made heaven and the earth". It is in Revelation 14:7 and Jeremiah 32:17 (Rahlfs 39:17). It is also in 2 Kings 19:15, 2 Chronicles 2:12 and Isaiah 37:16, and in Acts 4:24 and 14:15. It is a common phrase, not specific to Jeremiah.
+
+The "quotation" and "q" grades mean a strong textual match, not a proven citation. The Revelation book page is Book page [Revelation] (KJV), not the Ezra page that is open in the Reader.
+
+The queries Claude ran
+======================
+SELECT p.page_id,p.name,p.title,p.kind,p.run_id FROM pages p WHERE p.title LIKE '%Revelation%' LIMIT 20
+
+SELECT section_id,number,title,columns,n_rows,note FROM sections WHERE page_id=28 AND (number LIKE '4%' OR number LIKE '2%') ORDER BY position
+
+SELECT c.section_id,c.row,c.column,c.value FROM cells c WHERE c.section_id IN (162,163,164,168,169) AND c.value LIKE '%Jeremiah%' ORDER BY c.section_id,c.row LIMIT 100
+
+SELECT section_id,row,group_concat("column"||': '||value,' | ') v FROM cells WHERE (section_id=162 AND row=51) OR (section_id=163 AND row=12) OR (section_id=164 AND row=7) OR (section_id=168 AND row IN (10,24,54)) GROUP BY section_id,row
+
+SELECT section_id,row,reference FROM refs WHERE (section_id=162 AND row=51) OR (section_id=164 AND row=7) OR (section_id=168 AND row IN (10,24,54))
+
+SELECT section_id,row,"column",value FROM cells WHERE section_id=169 AND value LIKE '%Jer%' LIMIT 20
