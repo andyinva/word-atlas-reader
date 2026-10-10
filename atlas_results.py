@@ -434,6 +434,27 @@ def q_unlisted(db, run, n=100, seed=1):
     return head, table(["book", "table", "echo", "grade", "here", "elsewhere", "verdict"], sample)
 
 
+def greek_pairs(db, run):
+    """
+    The verse pairs the run's 4e tables hold in Greek, as frozensets of
+    two references, read from the refs behind every 4e row (the first
+    reference against each of the others).  A quotation of the
+    Septuagint is kept by few English translations because they render
+    the Hebrew, so the idiom question sets these apart.
+    """
+    pairs = set()
+    rows = {}
+    for r in db.execute(
+            "SELECT f.section_id, f.row, f.reference FROM refs f JOIN sections s USING (section_id) "
+            "JOIN pages p USING (page_id) WHERE p.run_id = ? AND p.kind = 'Book' AND s.number = '4e' "
+            "ORDER BY f.section_id, f.row, f.rowid", (run,)):
+        rows.setdefault((r["section_id"], r["row"]), []).append(r["reference"])
+    for refs in rows.values():
+        for other in refs[1:]:
+            pairs.add(frozenset((refs[0], other)))
+    return pairs
+
+
 def q_idiom(db, run):
     """
     The echoes found by English wording across the run (table 4's 'by
@@ -441,9 +462,11 @@ def q_idiom(db, run):
     translations stand to them: the 'translations' and 'families' cells
     the pages wrote ('kept/asked').  An echo no other family keeps is
     the likeliest to be the King James translators' idiom; one every
-    family keeps is the originals' own words.  The first list is the
-    idiom candidates, rarest first as the pages rank them; the second
-    the best attested; then a count by book.
+    family keeps is the originals' own words; one 4e holds in Greek is
+    a quotation of the Septuagint, kept by few translations because
+    they render the Hebrew, and is listed apart from the idiom.  A
+    cross-testament echo stands on both its books' pages, so the
+    heading counts the distinct verse pairs as well as the rows.
     """
     rows = []
     for r in db.execute(
@@ -463,29 +486,47 @@ def q_idiom(db, run):
                 continue
             kept, asked = int(m1.group(1)), int(m1.group(2))
             f_kept, f_asked = int(m2.group(1)), int(m2.group(2))
-            where = ", ".join(str(row[col[c]]) for c in ("here", "elsewhere", "Septuagint", "New Testament") if c in col)
-            rows.append((book_of(r["title"]), r["number"], row[0], where, kept, asked, f_kept, f_asked))
+            verses = [str(row[col[c]]) for c in ("here", "elsewhere", "Septuagint", "New Testament") if c in col]
+            where = ", ".join(verses)
+            # The pair, for the Greek check and the distinct count: the
+            # first verse on each side (a side may list several)
+            first = [v.split(",")[0].strip() for v in verses]
+            pair = frozenset(first[:2]) if len(first) >= 2 else frozenset(first)
+            rows.append((book_of(r["title"]), r["number"], row[0], where, kept, asked, f_kept, f_asked, pair))
     if not rows:
         return ("No page of this run carries the translations columns: build translations_index.db "
                 "(python3 atlas_translations.py build) and run the dossier again."), ""
-    idiom = [t for t in rows if t[7] and t[6] <= 1]
+    greek = greek_pairs(db, run)
+    quoted = [t for t in rows if t[8] in greek]
+    rest = [t for t in rows if t[8] not in greek]
+    idiom = [t for t in rest if t[7] and t[6] <= 1]
     attested = sorted((t for t in rows if t[7] and t[6] == t[7] and t[7] >= 2), key=lambda t: (-t[4], t[0]))
+    distinct = {(t[2], t[8]) for t in rows}
+    distinct_idiom = {(t[2], t[8]) for t in idiom}
     by_book = {}
     for t in rows:
-        b = by_book.setdefault(t[0], [0, 0, 0])
+        b = by_book.setdefault(t[0], [0, 0, 0, 0])
         b[0] += 1
-        b[1] += t[6] <= 1
-        b[2] += t[7] >= 2 and t[6] == t[7]
+        b[1] += t in idiom
+        b[2] += t in quoted
+        b[3] += t[7] >= 2 and t[6] == t[7]
     columns = ["book", "table", "echo", "verses", "kept", "asked", "families", "of"]
-    head = (f"The {len(rows)} echoes found by English wording (table 4's 'by English' rows, every 4f row) "
-            f"against the other English translations: {len(idiom)} are kept by no other family of translation "
-            f"than the King James's (the likeliest translators' idiom), {len(attested)} by every family asked "
-            f"(the originals' own words).  Counts, not scores; a translation keeps an echo when the same run "
-            f"stands in both verses and in at most six of its verses.")
-    body = ("Kept by the King James family alone, or by none:\n" + table(columns, idiom)
-            + "\n\nKept by every family asked:\n" + table(columns, attested)
-            + "\n\nBy book:\n" + table(["book", "English echoes", "idiom candidates", "every family"],
-                                        [(b, *v) for b, v in sorted(by_book.items())]))
+    strip = lambda ts: [t[:8] for t in ts]
+    head = (f"The {len(rows)} rows of echoes found by English wording (table 4's 'by English' rows, every 4f row; "
+            f"{len(distinct)} distinct echoes, since a cross-testament echo stands on both its books' pages) "
+            f"against the other English translations: {len(idiom)} rows ({len(distinct_idiom)} distinct) are kept "
+            f"by no other family of translation than the King James's and not held in Greek by 4e (the likeliest "
+            f"translators' idiom); {len(quoted)} rows are held in Greek by 4e and set apart, since a quotation of "
+            f"the Septuagint is kept by few translations because they render the Hebrew; {len(attested)} are kept "
+            f"by every family asked (the originals' own words).  Counts, not scores; a translation keeps an echo "
+            f"when the same run stands in both verses and in at most six of its verses.")
+    body = ("Kept by the King James family alone, or by none, and not held in Greek:\n" + table(columns, strip(idiom))
+            + "\n\nHeld in Greek by 4e (quoted from the Septuagint, whatever the translations say):\n"
+            + table(columns, strip(sorted(quoted, key=lambda t: (t[4], t[0]))))
+            + "\n\nKept by every family asked:\n" + table(columns, strip(attested))
+            + "\n\nBy book (rows on the book's own page):\n"
+            + table(["book", "English echoes", "idiom candidates", "held in Greek", "every family"],
+                    [(b, *v) for b, v in sorted(by_book.items())]))
     return head, body
 
 
