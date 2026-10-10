@@ -39,7 +39,7 @@ from reader_help import HelpMode, column_help
 import reader_guest
 import reader_questions
 
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something

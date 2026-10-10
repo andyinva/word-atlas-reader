@@ -199,7 +199,7 @@ COLUMN_HELP = {
  'grade': "'quotation' marks an echo of five or more words found in exactly two verses of the "
           "whole Bible, one here and one there: the strongest kind of evidence the table has.  'by "
           "English' marks an echo across the testaments that meets the same test by wording alone: "
-          "weaker, since the translators' idiom can make it.",
+          "weaker, since the translators' idiom can make it.  'cited, N roots' marks a row that is no echo at all but a pair the rabbinic library cites together in ten or more passages, whose two verses share N rare roots in any order: the readers' finding, on one word, admitted on their word.",
  'ha-': 'ha- (H9009): the (article).  Occurrences per 1,000 tokens of the text (King James tokens '
         'for a Greek book, Hebrew elements for a Hebrew one).',
  'hapaxes': "The book's roots used once in the whole testament (a root of one testament never "
