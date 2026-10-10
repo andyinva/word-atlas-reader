@@ -25,7 +25,18 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(HERE)
 
-SAMPLE = os.path.join(HERE, "sample", "word_atlas_0.10.69_2026-10-05.wadb")
+# The newest dataset in sample/: the one the repository carries, or the
+# one a bundle (atlas_dist.py) put there
+import glob
+SAMPLE = (sorted(glob.glob(os.path.join(HERE, "sample", "*.wadb")), key=os.path.getmtime) or
+          [os.path.join(HERE, "sample", "word_atlas_0.10.69_2026-10-05.wadb")])[-1]
+
+
+def a_root_in(dataset):
+    """A Strong's number the dataset holds (H1005 in the Ezra sample; whatever the file has), for the search tests."""
+    row = dataset.db.execute("SELECT value FROM cells WHERE value GLOB '[HG][0-9]*' AND value NOT GLOB '*[^HG0-9]*' "
+                             "LIMIT 1").fetchone()
+    return row[0] if row else "H1005"
 EM_DASH = chr(0x2014)
 results = []
 
@@ -126,8 +137,9 @@ def _():
     from reader_data import Dataset
     d = Dataset.open(SAMPLE)
     run = d.latest_run()
-    hits = d.search(run, "H1005")
-    assert hits, "no hits for H1005"
+    term = a_root_in(d)
+    hits = d.search(run, term)
+    assert hits, f"no hits for {term}"
     kinds = {h[4] for h in hits}
     assert "word" in kinds or any(h[3] >= 0 for h in hits), kinds
     assert d.search(run, "zzzzqqqq") == []
@@ -244,7 +256,7 @@ def _():
     assert w.report is not None, "no page shown after opening"
     assert w.page_view.toPlainText().startswith("WORD ATLAS"), "page view empty"
     assert w.grid.rowCount() > 0, "grid empty"
-    w.search_edit.setText("H1005")
+    w.search_edit.setText(a_root_in(w.data))
     w.search()
     assert w.search_grid.rowCount() > 0, "no search hits in the window"
     w.search_hit_opened(0, 0)

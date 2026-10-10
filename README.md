@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.5. Andrew Hopkins, with Claude.
+Version 0.3.6. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -208,6 +208,9 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.6: the tests open the newest dataset in sample/, so a copy made by
+Word Atlas's atlas_dist.py tests itself as it stands.
 
 0.3.5: the grade help names the 'cited, N roots' rows (Word Atlas 0.10.82).
 
