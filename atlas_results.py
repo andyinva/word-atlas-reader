@@ -458,10 +458,11 @@ def q_idiom(db, run):
             if r["number"] == "4" and row[col.get("grade", 0)] != "by English":
                 continue
             t_cell, f_cell = str(row[col["translations"]] or ""), str(row[col["families"]] or "")
-            if "/" not in t_cell:
+            m1, m2 = re.match(r"(\d+)/(\d+)", t_cell), re.match(r"(\d+)/(\d+)", f_cell)
+            if not m1 or not m2:
                 continue
-            kept, asked = (int(x) for x in t_cell.split("/"))
-            f_kept, f_asked = (int(x) for x in f_cell.split("/"))
+            kept, asked = int(m1.group(1)), int(m1.group(2))
+            f_kept, f_asked = int(m2.group(1)), int(m2.group(2))
             where = ", ".join(str(row[col[c]]) for c in ("here", "elsewhere", "Septuagint", "New Testament") if c in col)
             rows.append((book_of(r["title"]), r["number"], row[0], where, kept, asked, f_kept, f_asked))
     if not rows:
