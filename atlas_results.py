@@ -14,7 +14,9 @@ reviewer) reads the answer the same way as a dossier.
     python3 atlas_results.py seams                    the seams between the two taggings 4e found, counted across the canon
     python3 atlas_results.py declined                 every table that declined to measure, with its reason
     python3 atlas_results.py listed                   the echo tables (4, 4e, 6) against the cross references, book by book
+    python3 atlas_results.py cited                    the same against the pairs the rabbinic library cites together (Sefaria)
     python3 atlas_results.py unlisted [N]             a random sample of N unlisted echo rows (default 100) to grade by hand; --seed S
+    python3 atlas_results.py idiom                    the English echoes (4, 4f) by how many translations keep them: idiom or the originals' words
     python3 atlas_results.py section Isaiah 7d        one section of one page, as stored
     python3 atlas_results.py diff 1 2                 the cells that differ between two runs, page by page
     python3 atlas_results.py sql "SELECT ..."         any query, printed as a table
@@ -338,20 +340,23 @@ def q_diff(db, run_a, run_b):
     return head, body
 
 
-def q_listed(db, run):
+def q_listed(db, run, web="Listed links"):
     """
     The outside check across a run: for every book page's tables 4, 4e
     and 6, how many of the well-voted cross references (OpenBible.info
     on the Treasury of Scripture Knowledge) from the book's verses the
     table holds, from the footers the pages wrote.  'held' is the count
     the table reached, 'listed' the count to reach; the share is the
-    recall of the echo layer against readers' own linking.
+    recall of the echo layer against readers' own linking.  With
+    web='Cited pairs' the same is read from the cited-pairs footers
+    (Sefaria's library, 0.10.81; q_cited below).
     """
     rows = []
+    like = web + " (%"
     for r in db.execute(
             "SELECT p.title, s.number, f.text FROM footers f JOIN sections s USING (section_id) "
             "JOIN pages p USING (page_id) WHERE p.run_id = ? AND p.kind = 'Book' AND s.number IN ('4', '4e') "
-            "AND f.text LIKE 'Listed links (%' ORDER BY p.page_id, s.number", (run,)):
+            "AND f.text LIKE ? ORDER BY p.page_id, s.number", (run, like)):
         parsed = parse_footer(r["text"])
         if parsed:
             _, what, listed, held, strong, strong_held = parsed
@@ -360,8 +365,8 @@ def q_listed(db, run):
     # Table 6 writes its own form: links between chapters, and how many lit
     for r in db.execute(
             "SELECT p.title, f.text FROM footers f JOIN sections s USING (section_id) JOIN pages p USING (page_id) "
-            "WHERE p.run_id = ? AND p.kind = 'Book' AND s.number = '6' AND f.text LIKE 'Listed links (%' "
-            "ORDER BY p.page_id", (run,)):
+            "WHERE p.run_id = ? AND p.kind = 'Book' AND s.number = '6' AND f.text LIKE ? "
+            "ORDER BY p.page_id", (run, like)):
         m = re.search(r"between different chapters of .+?: (\d+); (\d+) fall on a pair the map lights", r["text"])
         if m:
             listed, lit = int(m.group(1)), int(m.group(2))
@@ -370,11 +375,25 @@ def q_listed(db, run):
     rows.sort(key=lambda t: (t[1], -(t[5] or -1), t[0]))
     total_listed = sum(t[3] for t in rows if t[1] == "4")
     total_held = sum(t[4] for t in rows if t[1] == "4")
-    head = (f"The echo tables against the cross references (OpenBible.info on the Treasury of Scripture "
-            f"Knowledge, links with 10 or more votes): how many of the listed links from each book's verses the "
-            f"table holds.  Table 4 over the run: {total_held} of {total_listed} held"
-            + (f" ({round(100 * total_held / total_listed)}%)" if total_listed else "") + ".")
-    return head, table(["book", "table", "links to", "listed", "held", "held %", "100+ votes", "held"], rows)
+    if web == "Cited pairs":
+        head = (f"The echo tables against the pairs the rabbinic library cites together (derived from Sefaria's "
+                f"links; pairs cited in 2 or more passages): how many of the cited pairs from each book's verses "
+                f"the table holds.  The rabbis read two verses together above all for a word they share, so this "
+                f"web tests the method on its own ground, where the cross references test it on theme.  "
+                f"Table 4 over the run: {total_held} of {total_listed} held")
+        columns = ["book", "table", "pairs to", "cited", "held", "held %", "10+ passages", "held"]
+    else:
+        head = (f"The echo tables against the cross references (OpenBible.info on the Treasury of Scripture "
+                f"Knowledge, links with 10 or more votes): how many of the listed links from each book's verses the "
+                f"table holds.  Table 4 over the run: {total_held} of {total_listed} held")
+        columns = ["book", "table", "links to", "listed", "held", "held %", "100+ votes", "held"]
+    head += (f" ({round(100 * total_held / total_listed)}%)" if total_listed else "") + "."
+    return head, table(columns, rows)
+
+
+def q_cited(db, run):
+    """The echo tables against the cited pairs (Sefaria), book by book: q_listed on the other web's footers."""
+    return q_listed(db, run, web="Cited pairs")
 
 
 def q_unlisted(db, run, n=100, seed=1):
@@ -413,6 +432,60 @@ def q_unlisted(db, run, n=100, seed=1):
             f"real (a connection a reader would allow), idiom (the language's stock), coincidence (numbers, names), "
             f"or unsure.")
     return head, table(["book", "table", "echo", "grade", "here", "elsewhere", "verdict"], sample)
+
+
+def q_idiom(db, run):
+    """
+    The echoes found by English wording across the run (table 4's 'by
+    English' rows and every 4f row), by how the other English
+    translations stand to them: the 'translations' and 'families' cells
+    the pages wrote ('kept/asked').  An echo no other family keeps is
+    the likeliest to be the King James translators' idiom; one every
+    family keeps is the originals' own words.  The first list is the
+    idiom candidates, rarest first as the pages rank them; the second
+    the best attested; then a count by book.
+    """
+    rows = []
+    for r in db.execute(
+            "SELECT p.title, s.section_id, s.number, s.columns FROM sections s JOIN pages p USING (page_id) "
+            "WHERE p.run_id = ? AND p.kind = 'Book' AND s.number IN ('4', '4f') ORDER BY p.page_id, s.number", (run,)):
+        columns = r["columns"].split("\t")
+        if "translations" not in columns or "families" not in columns:
+            continue
+        _, data = section_rows(db, r["section_id"])
+        col = {c: i for i, c in enumerate(columns)}
+        for row in data:
+            if r["number"] == "4" and row[col.get("grade", 0)] != "by English":
+                continue
+            t_cell, f_cell = str(row[col["translations"]] or ""), str(row[col["families"]] or "")
+            if "/" not in t_cell:
+                continue
+            kept, asked = (int(x) for x in t_cell.split("/"))
+            f_kept, f_asked = (int(x) for x in f_cell.split("/"))
+            where = ", ".join(str(row[col[c]]) for c in ("here", "elsewhere", "Septuagint", "New Testament") if c in col)
+            rows.append((book_of(r["title"]), r["number"], row[0], where, kept, asked, f_kept, f_asked))
+    if not rows:
+        return ("No page of this run carries the translations columns: build translations_index.db "
+                "(python3 atlas_translations.py build) and run the dossier again."), ""
+    idiom = [t for t in rows if t[7] and t[6] <= 1]
+    attested = sorted((t for t in rows if t[7] and t[6] == t[7] and t[7] >= 2), key=lambda t: (-t[4], t[0]))
+    by_book = {}
+    for t in rows:
+        b = by_book.setdefault(t[0], [0, 0, 0])
+        b[0] += 1
+        b[1] += t[6] <= 1
+        b[2] += t[7] >= 2 and t[6] == t[7]
+    columns = ["book", "table", "echo", "verses", "kept", "asked", "families", "of"]
+    head = (f"The {len(rows)} echoes found by English wording (table 4's 'by English' rows, every 4f row) "
+            f"against the other English translations: {len(idiom)} are kept by no other family of translation "
+            f"than the King James's (the likeliest translators' idiom), {len(attested)} by every family asked "
+            f"(the originals' own words).  Counts, not scores; a translation keeps an echo when the same run "
+            f"stands in both verses and in at most six of its verses.")
+    body = ("Kept by the King James family alone, or by none:\n" + table(columns, idiom)
+            + "\n\nKept by every family asked:\n" + table(columns, attested)
+            + "\n\nBy book:\n" + table(["book", "English echoes", "idiom candidates", "every family"],
+                                        [(b, *v) for b, v in sorted(by_book.items())]))
+    return head, body
 
 
 def q_sql(db, run, sql):
@@ -457,9 +530,13 @@ def main(argv):
         head, body = q_declined(db, run)
     elif command == "listed":
         head, body = q_listed(db, run)
+    elif command == "cited":
+        head, body = q_cited(db, run)
     elif command == "unlisted":
         n = int(rest[1]) if len(rest) > 1 else 100
         head, body = q_unlisted(db, run, n, seed)
+    elif command == "idiom":
+        head, body = q_idiom(db, run)
     elif command == "section" and len(rest) >= 3:
         head, body = q_section(db, run, " ".join(rest[1:-1]), rest[-1])
     elif command == "diff" and len(rest) == 3:

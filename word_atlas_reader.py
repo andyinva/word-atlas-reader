@@ -39,7 +39,7 @@ from reader_help import HelpMode, column_help
 import reader_guest
 import reader_questions
 
-VERSION = "0.3.2"
+VERSION = "0.3.4"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -278,7 +278,9 @@ class ReaderWindow(QMainWindow):
                             ("deltas", "Function-word &Deltas (7d)"), ("seams", "Echo s&eams (4e)"),
                             ("declined", "Tables that &declined"),
                             ("listed", "Echo tables against the cross references (&listed)"),
-                            ("unlisted", "A sample of &unlisted echoes to grade by hand")]:
+                            ("unlisted", "A sample of &unlisted echoes to grade by hand"),
+                            ("cited", "Echo tables against the rabbinic library's pairs (&cited)"),
+                            ("idiom", "English echoes by the other translations (&idiom)")]:
             self._action(results, label, lambda checked=False, n=name: self.run_results(n))
         results.addSeparator()
         self._action(results, "&Diff two runs...", self.diff_runs)
@@ -784,7 +786,8 @@ class ReaderWindow(QMainWindow):
         question = {"runs": atlas_results.q_runs, "shares": atlas_results.q_shares,
                     "deltas": atlas_results.q_deltas, "seams": atlas_results.q_seams,
                     "declined": atlas_results.q_declined, "listed": atlas_results.q_listed,
-                    "unlisted": atlas_results.q_unlisted}[name]
+                    "unlisted": atlas_results.q_unlisted, "idiom": atlas_results.q_idiom,
+                    "cited": atlas_results.q_cited}[name]
         try:
             head, body = question(self.data.db, self.run_id)
         except Exception as e:

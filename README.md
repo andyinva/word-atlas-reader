@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.2. Andrew Hopkins, with Claude.
+Version 0.3.4. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -78,7 +78,9 @@ main program's database: the runs in the file, the Septuagint shares
 of every New Testament book (1f), every part's function-word Delta
 against its rest (7d), the echo seams (4e), the tables that declined
 and why, the echo tables against the cross references (the `listed` footers
-of 4, 4e and 6, from Word Atlas 0.10.75 on), and a diff of two runs
+of 4, 4e and 6, from Word Atlas 0.10.75 on), the English echoes by how many
+other translations keep them (`idiom`, from 0.10.80), the echo tables against the
+pairs the rabbinic library cites together (`cited`, from 0.10.81), and a diff of two runs
 cell by cell when the file holds more than one run.
 
 The **Ask Claude** tab sends a question about the dataset to Claude;
@@ -206,6 +208,13 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.4: the `cited` question on the Results menu and the help for the
+`cited` column (Word Atlas 0.10.81, the rabbinic library's pairs from
+Sefaria).
+
+0.3.3: the `idiom` question on the Results menu and the help for the
+`translations` and `families` columns (Word Atlas 0.10.80).
 
 0.3.2: the `unlisted` sample on the Results menu (atlas_results.py of
 0.10.77).

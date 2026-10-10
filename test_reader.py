@@ -142,7 +142,8 @@ def _():
     d = Dataset.open(SAMPLE)
     run = d.latest_run()
     for q in (atlas_results.q_runs, atlas_results.q_shares, atlas_results.q_deltas,
-              atlas_results.q_seams, atlas_results.q_declined):
+              atlas_results.q_seams, atlas_results.q_declined, atlas_results.q_listed, atlas_results.q_idiom,
+              atlas_results.q_cited):
         head, body = q(d.db, run)
         assert isinstance(head, str) and isinstance(body, str), q.__name__
     head, body = atlas_results.q_diff(d.db, run, run)
