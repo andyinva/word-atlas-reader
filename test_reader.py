@@ -456,6 +456,18 @@ def _():
         w.open_at_start()
         assert w.data is not None and os.path.abspath(w.data.source_path) == os.path.abspath(kept), "opened the sample"
         w.close()
+        # A last file outside the Reader's folder (one opened before the
+        # Reader kept copies) is brought in at start, and the copy opened
+        outside = os.path.join(tmp, "word_atlas_outside.wadb")
+        shutil.copy2(SAMPLE, outside)
+        w = R.ReaderWindow()
+        w.settings["last_file"] = outside
+        w.open_at_start()
+        brought = os.path.join(library, "word_atlas_outside.wadb")
+        assert os.path.exists(brought), "a last file outside the Reader's folder was not brought in at start"
+        assert os.path.abspath(w.data.source_path) == os.path.abspath(brought) and w.settings["last_file"] == brought
+        w.close()
+        reader_data.forget_dataset(brought)
         # With no dataset of its own it opens nothing, rather than the sample
         reader_data.forget_dataset(kept)
         assert not os.path.exists(kept) and not reader_data.kept_datasets()
@@ -465,6 +477,41 @@ def _():
         w.open_at_start()
         assert w.data is None, "the sample was opened at start"
         w.close()
+
+
+# --- the credits page -----------------------------------------------------------------------
+@test("the credits page names the sources a dataset draws on, and only those")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    import reader_credits
+    import word_atlas_reader as R
+    # With no dataset every source is named
+    every = reader_credits.credits_text()
+    for word in ("King James", "OpenBible.info", "Rahlfs", "STEPBible", "Sefaria", "MIT licence", "PyQt6"):
+        assert word in every, f"{word} missing from the credits"
+    # A dataset is credited with what its tables show: one with the listed
+    # and cited columns and no Greek tables names the cross references and
+    # Sefaria, and not the Septuagint
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE sections (number TEXT, title TEXT, note TEXT, columns TEXT)")
+    db.execute("INSERT INTO sections VALUES ('4', 'Echoes [Joel] -> other books', '', 'echo\tverses\tlisted\tcited')")
+    assert reader_credits.sources_in(db) == ["kjv", "strongs", "listed", "cited"], reader_credits.sources_in(db)
+    text = reader_credits.credits_text(db, "joel.wadb")
+    assert "The dataset joel.wadb draws on:" in text and "sefaria.org" in text and "OpenBible.info" in text
+    assert "LXX Rahlfs 1935" not in text and "It holds nothing from: The Septuagint" in text, text[:600]
+    # A table numbered 4e brings in the Septuagint and STEPBible credits
+    db.execute("INSERT INTO sections VALUES ('4e', 'Septuagint echoes', '', 'echo')")
+    assert {"septuagint", "stepbible"} <= set(reader_credits.sources_in(db))
+    # The sample's own credits open from a .wadb, and the window offers the page on its Help menu
+    sample = reader_credits.open_dataset(SAMPLE)
+    assert sample is not None and "kjv" in reader_credits.sources_in(sample)
+    sample.close()
+    assert reader_credits.open_dataset(__file__) is None, "a file that is no dataset was taken for one"
+    w = R.ReaderWindow()
+    labels = [a.text().replace("&", "") for m in w.menuBar().actions() for a in m.menu().actions()]
+    assert "Credits and licences" in labels, labels
+    w.close()
 
 
 # --- the Tools tab and the USB drive ---------------------------------------------------------
@@ -506,8 +553,10 @@ def _():
         reader_tools.make_reader_zip(HERE, t.open_wadb(), out)
         names = zipfile.ZipFile(out).namelist()
         for need in ("word_atlas_reader/word_atlas_reader.py", "word_atlas_reader/reader_tools.py",
+                     "word_atlas_reader/reader_credits.py", "word_atlas_reader/CREDITS.txt",
                      "word_atlas_reader/datasets/" + os.path.basename(SAMPLE), "word_atlas_reader/START.txt"):
             assert need in names, f"{need} not in the zip"
+        assert "credits and licences" in zipfile.ZipFile(out).read("word_atlas_reader/CREDITS.txt").decode("utf-8")
         assert "word_atlas_reader/guest_key.dat" not in names, "the guest key went along unasked"
     w.close()
 

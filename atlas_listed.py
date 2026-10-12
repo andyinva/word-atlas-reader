@@ -67,6 +67,9 @@ def parse_ref(ref):
 def candidate_paths():
     """Where the cross references may be: bibles.db as the atlas finds it, or an export beside the program."""
     paths = []
+    # An export beside the program first (openbible_import.py writes a
+    # fresh one from OpenBible.info's download), then bibles.db's table
+    paths.append(os.path.join(PROGRAM_DIR, "cross_references.db"))
     try:
         # Imported here, not at the top: the Reader carries a copy of this
         # module for parse_footer and has no atlas_text
@@ -74,7 +77,6 @@ def candidate_paths():
         paths.append(atlas_text.find_database())
     except (ImportError, SystemExit):
         pass
-    paths.append(os.path.join(PROGRAM_DIR, "cross_references.db"))
     return paths
 
 

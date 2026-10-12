@@ -86,6 +86,9 @@ HELP = {
     "tools_sql": "A reading query of your own against the open dataset, in SQL.  Only one SELECT (or WITH) "
                  "statement runs, the answer is cut at a few hundred rows, and the dataset is never written "
                  "to.  'The tables and their columns' prints what there is to query.",
+    "credits": "Whose work the dataset rests on (the King James text, Strong's, the cross references, the "
+               "Septuagint, STEPBible's Greek and Hebrew, Sefaria's links) and on what terms each may be "
+               "passed on.  Help > Credits and licences shows it for the dataset that is open.",
     "tools_fetch": "Where Word Atlas is in the folder beside the Reader's: copy the newest dataset it has packed "
                    "(its reports folder) into the Reader's own datasets folder and open it.  The Reader then "
                    "reads its own copy, and that copy is what a USB drive made from the Reader carries.",

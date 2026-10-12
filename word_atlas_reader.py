@@ -39,15 +39,16 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
 
 import atlas_results
 from atlas_report import render, is_numeric_cell
-from reader_data import (Dataset, is_sample, keep_dataset, kept_datasets, library_dir, load_settings,
+from reader_data import (Dataset, in_library, is_sample, keep_dataset, kept_datasets, library_dir, load_settings,
                          newest_from_atlas, save_settings)
 from reader_claude import DEFAULT_MODEL, STARTER_QUESTIONS, ApiError, clipboard_prompt, list_models, start_worker
 from reader_help import HelpMode, column_help
+import reader_credits
 import reader_guest
 import reader_questions
 from reader_tools import ToolsTab
 
-VERSION = "0.3.10"
+VERSION = "0.3.11"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -286,6 +287,7 @@ class ReaderWindow(QMainWindow):
         results.addSeparator()
         self._action(results, "&Diff two runs...", self.diff_runs)
         help_menu = self.menuBar().addMenu("&Help")
+        self._action(help_menu, "&Credits and licences", self.credits)
         self._action(help_menu, "&About", self.about)
 
     def _action(self, menu, label, slot, shortcut=None):
@@ -597,7 +599,11 @@ class ReaderWindow(QMainWindow):
             return
         last = self.settings.get("last_file", "")
         if last and os.path.exists(last) and not is_sample(last):
-            self.open_path(last)
+            # A last file that is not one of the Reader's own copies (it
+            # was opened before the Reader kept copies, or the copy could
+            # not be made that time) is brought into the Reader's folder
+            # now: open_chosen copies it only when it is not there already
+            self.open_chosen(last)
             self.hint_newer()
             return
         kept = kept_datasets()
@@ -654,7 +660,10 @@ class ReaderWindow(QMainWindow):
                                 f"Reader's datasets folder ({e}).\nIt is opened where it is.")
         else:
             QApplication.restoreOverrideCursor()
-        self.settings["last_open_dir"] = os.path.dirname(os.path.abspath(path))
+        if not in_library(path):
+            # Where the dataset came from, for the next File > Open (the
+            # Reader's own folder is not where a new one will be found)
+            self.settings["last_open_dir"] = os.path.dirname(os.path.abspath(path))
         if not self.open_path(kept):
             if copied:
                 os.remove(kept)         # not a dataset after all: the copy is not kept
@@ -1035,11 +1044,39 @@ class ReaderWindow(QMainWindow):
         QApplication.clipboard().setText(prompt)
         self.statusBar().showMessage(f"Copied a prompt of {len(prompt):,} characters; paste it into claude.ai")
 
-    # --- about ------------------------------------------------------------------------------
+    # --- credits and about --------------------------------------------------------------------
+    def credits(self):
+        """
+        The credits page (reader_credits.py): whose work the dataset
+        rests on and on what terms each may be passed on.  With a
+        dataset open the page says first which sources that dataset
+        draws on.
+        """
+        name = os.path.basename(self.data.source_path) if self.data is not None else ""
+        text = reader_credits.credits_text(self.data.db if self.data is not None else None, name)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Credits and licences")
+        dialog.resize(860, 640)
+        box = QVBoxLayout(dialog)
+        view = QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setFont(mono_font())
+        view.setPlainText(text)
+        box.addWidget(view, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        save = buttons.addButton("Save as text...", QDialogButtonBox.ButtonRole.ActionRole)
+        save.clicked.connect(lambda: self._save_text(text, "word_atlas_credits.txt", "Save the credits as text"))
+        copy = buttons.addButton("Copy", QDialogButtonBox.ButtonRole.ActionRole)
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(text))
+        buttons.rejected.connect(dialog.reject)
+        box.addWidget(buttons)
+        dialog.exec()
+
     def about(self):
         QMessageBox.about(self, "Word Atlas Reader",
                           f"Word Atlas Reader {VERSION}\n\nA viewer for the results a Word Atlas run wrote: "
-                          "every page, every table, every figure, in one file.\n\nAndrew Hopkins, with Claude.")
+                          "every page, every table, every figure, in one file.\n\nAndrew Hopkins, with Claude.\n\n"
+                          "Help > Credits and licences names the sources the dataset rests on.")
 
     def closeEvent(self, event):
         # The help mode's filter sits on the application, not the window,

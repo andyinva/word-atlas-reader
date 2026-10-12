@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.10. Andrew Hopkins, with Claude.
+Version 0.3.11. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -49,7 +49,10 @@ remembers. The file it was given can then be moved, renamed or
 replaced, or the drive it was on unplugged, and the Reader still has
 its data; and the dataset that is open is always one the Reader holds,
 which is what a zip or a USB drive made from the Tools tab carries.
-Opening the same file again copies nothing. A bare `results.db` is
+Opening the same file again copies nothing. A dataset that was the
+last file opened before the Reader kept copies is brought in the same
+way the next time the Reader starts. The `datasets/` folder is made
+the first time the Reader starts, not by the tests. A bare `results.db` is
 not copied: it is the main program's working file and is opened where
 it stands. `datasets/` is kept out of git (each dataset is some 100
 MB). Where the program's folder cannot be written to, the copies go
@@ -203,6 +206,26 @@ and `python3 atlas_usb.py build DRIVE` does it from a terminal.
 The Windows side of the installer was written on Linux and has not
 yet been run on a Windows machine.
 
+## Credits and licences
+
+**Help > Credits and licences** shows whose work the dataset rests on
+and on what terms each may be passed on: the King James text and
+Strong's numbers (public domain), the Strong's dictionary (MIT), the
+cross references from OpenBible.info (CC BY), Rahlfs' Septuagint
+(CC BY-NC-SA: with its credit, never for sale), STEPBible's Greek New
+Testament, Hebrew Bible and verse maps (CC BY), the counts derived
+from Sefaria's links, the older English translations (counts only),
+and the programs themselves (MIT, on Python, Qt and PyQt6). With a
+dataset open the page begins by saying which of those sources that
+dataset draws on, found from its own tables, so a dataset packed
+without the Greek layer does not credit the Septuagint. Save as text
+and Copy are on the page.
+
+The same page prints from a terminal with `python3 reader_credits.py`
+(add a dataset's name for that dataset's credits), and a zip made on
+the Tools tab carries it as `CREDITS.txt`. Keep it with any copy you
+give away: naming the sources is the one thing most of them ask.
+
 ## Giving copies away with a guest key
 
 A copy of the Reader can carry a guest API key, so the person you
@@ -257,6 +280,7 @@ be thought of as a small prepaid card, never as a secret.
 | `guest_key.dat` | a scrambled guest key with its end date, when a copy carries one; never committed |
 | `reader_questions.py` | the Questions list, grouped by subject |
 | `reader_tools.py` | the Tools tab: dataset details, a query of your own, this copy's tests and guest key, the zip |
+| `reader_credits.py` | the credits and licences page: the sources, and which of them a dataset draws on |
 | `atlas_usb.py` | the USB drive: finds drives, makes or updates the `WordAtlas` folder on one, fetches PyQt6 for it (the same file as the main program's) |
 | `atlas_usb_dialog.py` | the USB drive's window (the same file as the main program's) |
 | `usb_install.py` | the installer, copied to a drive as `install.py` (the same file as the main program's) |
@@ -300,11 +324,12 @@ offers to install that copy.
 
     python3 test_reader.py
 
-Sixteen tests: opening the sample, rendering a page, the cell text,
+Seventeen tests: opening the sample, rendering a page, the cell text,
 search, the results questions, the SQL tool's refusals, the question
 loop against a stand-in API, the window offscreen, help mode and the
-histories, the guest key, the Reader's own datasets folder, the Tools
-tab, a USB drive made, updated and installed from, and housekeeping.
+histories, the guest key, the Reader's own datasets folder, the
+credits page, the Tools tab, a USB drive made, updated and installed
+from, and housekeeping.
 
 The tests read the sample and keep to a throwaway home folder of
 their own (`WORD_ATLAS_READER_HOME`), so running them changes nothing
@@ -324,6 +349,13 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.11: a credits and licences page (Help menu; reader_credits.py),
+which names the sources a dataset rests on and says which of them the
+open dataset draws on, and goes into a give-away zip as CREDITS.txt.
+A last file that is not one of the Reader's own copies (one opened
+before 0.3.10) is copied into `datasets/` when the Reader starts,
+where 0.3.10 went on opening it from where it was.
 
 0.3.10: the Reader keeps its own copy of every dataset it is given,
 in `datasets/` beside the program, and opens that copy; at start it

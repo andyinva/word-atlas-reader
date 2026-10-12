@@ -47,7 +47,7 @@ FROZEN = bool(getattr(sys, "frozen", False))      # a built copy (PyInstaller): 
 
 # The files a copy of the Reader is made of; "Check this copy" says which are here
 EXPECTED_FILES = ["word_atlas_reader.py", "reader_data.py", "reader_claude.py", "reader_guest.py", "reader_help.py",
-                  "reader_questions.py", "reader_tools.py", "atlas_report.py", "atlas_results.py", "atlas_listed.py",
+                  "reader_questions.py", "reader_tools.py", "reader_credits.py", "atlas_report.py", "atlas_results.py", "atlas_listed.py",
                   "atlas_usb.py", "atlas_usb_dialog.py", "usb_install.py"]
 
 
@@ -56,9 +56,12 @@ def make_reader_zip(reader_dir, dataset, out, guest_key=False):
     Zip the Reader's program files with a dataset in its datasets
     folder (where the Reader looks first when it starts) and a
     START.txt saying how to run it: a copy to hand on by email or on a
-    stick.  Returns the number of files written.
+    stick.  The credits page goes in as CREDITS.txt, written for the
+    dataset in the zip, so it is the first thing anyone opening the
+    zip can read.  Returns the number of files written.
     """
     import atlas_usb
+    import reader_credits
     names = atlas_usb.reader_files(reader_dir, guest_key)
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for name in names:
@@ -66,6 +69,12 @@ def make_reader_zip(reader_dir, dataset, out, guest_key=False):
         if dataset:
             # A .wadb is a zip already: stored as it is, not squeezed again
             z.write(dataset, "word_atlas_reader/datasets/" + os.path.basename(dataset), compress_type=zipfile.ZIP_STORED)
+        # The credits, saying which sources this dataset draws on
+        db = reader_credits.open_dataset(dataset) if dataset else None
+        z.writestr("word_atlas_reader/CREDITS.txt",
+                   reader_credits.credits_text(db, os.path.basename(dataset) if dataset else ""))
+        if db is not None:
+            db.close()
         z.writestr("word_atlas_reader/START.txt",
                    "Word Atlas Reader\n\nInstall Python 3.10 or later and PyQt6 (pip install PyQt6), then run\n\n"
                    "    python3 word_atlas_reader.py\n\n"
