@@ -15,7 +15,9 @@ a = Analysis(
     ["word_atlas_reader.py"],
     pathex=["."],
     binaries=[],
-    datas=[],
+    # The installer a USB drive carries is a file the built copy must
+    # have beside it to make a drive (atlas_usb.py copies it there)
+    datas=[("usb_install.py", ".")],
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],

@@ -20,6 +20,12 @@ the main program.
     for run in data.runs(): ...
     report = data.report(page_id)
     text = render(report, atlas=data.build_of(run_id))
+
+The Reader keeps its own copy of every dataset it is given (0.3.10):
+keep_dataset() copies a .wadb into the datasets folder beside the
+program, and the Reader opens that copy.  The file it was given can
+then be moved, renamed or replaced, on a drive that is unplugged or in
+the main program's reports folder, and the Reader still has its data.
 """
 
 import json
@@ -27,15 +33,30 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 import zipfile
 
 from atlas_report import Report, Section
 
 # Where the Reader keeps its unpacked datasets and its settings.  One
 # folder in the home directory works the same on Ubuntu and Windows.
-HOME_DIR = os.path.join(os.path.expanduser("~"), ".word_atlas_reader")
+# WORD_ATLAS_READER_HOME names another folder instead, and then the
+# Reader keeps everything under it and looks nowhere else: the tests
+# set it to a throwaway folder, so a test run leaves the real settings
+# (the last file opened, the histories, the API key) and the real
+# datasets exactly as they were.
+ISOLATED = bool(os.environ.get("WORD_ATLAS_READER_HOME"))
+HOME_DIR = os.environ.get("WORD_ATLAS_READER_HOME") or os.path.join(os.path.expanduser("~"), ".word_atlas_reader")
 DATASET_DIR = os.path.join(HOME_DIR, "datasets")
 SETTINGS_PATH = os.path.join(HOME_DIR, "settings.json")
+
+# The folder the program is in: this file's folder, or, for a built
+# copy (PyInstaller), the folder its program file is in
+PROGRAM_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
+    else os.path.dirname(os.path.abspath(__file__))
+# The sample dataset the repository carries for the tests.  It is never
+# what the Reader opens of its own accord.
+SAMPLE_DIR = os.path.join(PROGRAM_DIR, "sample")
 
 # The names inside a .wadb archive
 DB_MEMBER = "results.db"
@@ -60,6 +81,108 @@ def save_settings(settings):
     os.makedirs(HOME_DIR, exist_ok=True)
     with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# The Reader's own datasets folder
+# ---------------------------------------------------------------------------
+
+def library_dir():
+    """
+    The folder the Reader keeps its own copies of datasets in:
+    datasets/ beside the program.  Where the program's folder cannot
+    be written to (a copy installed for all users, a read-only drive)
+    it is library/ in the Reader's home folder instead, as it is while
+    the tests run.  The folder is made if it is not there.
+    """
+    folder = os.path.join(PROGRAM_DIR, "datasets")
+    try:
+        if not ISOLATED:
+            os.makedirs(folder, exist_ok=True)
+            if os.access(folder, os.W_OK):
+                return folder
+    except OSError:
+        pass
+    folder = os.path.join(HOME_DIR, "library")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def in_library(path):
+    """True when a file is already one of the Reader's own copies."""
+    return os.path.abspath(os.path.dirname(path)) == os.path.abspath(library_dir())
+
+
+def is_sample(path):
+    """True when a file is in the sample folder the tests use."""
+    return os.path.abspath(os.path.dirname(path)) == os.path.abspath(SAMPLE_DIR)
+
+
+def keep_dataset(path):
+    """
+    Copy a .wadb into the Reader's datasets folder and return the
+    copy's path, which is the one to open.  Returns (path, copied):
+    copied is False when nothing had to be copied, because the file is
+    already there (the same size, and no older than the one given), is
+    already in the folder, or is not a .wadb at all.  A bare results.db
+    is not copied: it is the main program's working file, opened where
+    it stands.
+
+    The copy keeps the date of the file it was made from, so a dataset
+    already unpacked once is not unpacked again for being copied.
+    """
+    if not zipfile.is_zipfile(path) or in_library(path):
+        return path, False
+    target = os.path.join(library_dir(), os.path.basename(path))
+    if os.path.exists(target) and os.path.getsize(target) == os.path.getsize(path) \
+            and os.path.getmtime(target) >= os.path.getmtime(path) - 2:
+        return target, False
+    part = target + ".part"
+    try:
+        shutil.copy2(path, part)          # copy2: the contents and the date
+        os.replace(part, target)
+    except OSError:
+        if os.path.exists(part):
+            os.remove(part)
+        raise
+    return target, True
+
+
+def kept_datasets():
+    """The Reader's own copies, newest first: [(path, size in bytes)]."""
+    folder = library_dir()
+    files = [os.path.join(folder, n) for n in os.listdir(folder) if n.lower().endswith(".wadb")]
+    files.sort(key=os.path.getmtime, reverse=True)
+    return [(f, os.path.getsize(f)) for f in files]
+
+
+def atlas_reports_dir():
+    """
+    The reports folder of the main program, when Word Atlas is in the
+    folder beside the Reader's (as it is on the computer the datasets
+    are made on): where atlas_pack.py writes each new .wadb.  None
+    anywhere else, and while the tests run.
+    """
+    folder = os.path.join(os.path.dirname(PROGRAM_DIR), "word_atlas", "reports")
+    return folder if os.path.isdir(folder) and not ISOLATED else None
+
+
+def newest_from_atlas():
+    """The newest .wadb in Word Atlas's reports folder, or None."""
+    folder = atlas_reports_dir()
+    if not folder:
+        return None
+    files = [os.path.join(folder, n) for n in os.listdir(folder) if n.lower().endswith(".wadb")]
+    return max(files, key=os.path.getmtime) if files else None
+
+
+def forget_dataset(path):
+    """Delete one of the Reader's own copies and the unpacked database made from it."""
+    if not in_library(path):
+        raise ValueError(f"{path} is not in the Reader's datasets folder")
+    os.remove(path)
+    base = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.splitext(os.path.basename(path))[0])
+    shutil.rmtree(os.path.join(DATASET_DIR, base), ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.8. Andrew Hopkins, with Claude.
+Version 0.3.10. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -26,7 +26,12 @@ the Reader (see Building below) needs neither.
     python3 word_atlas_reader.py word_atlas_0.10.69_2026-10-05.wadb
 
 The Reader remembers the last file opened and opens it again on the
-next start. A sample dataset is in `sample/`.
+next start. With no last file it opens the newest of its own datasets
+(next section); with none of its own, and Word Atlas in the folder
+beside it, it fetches the newest dataset from Word Atlas's `reports/`
+folder. The small sample in `sample/` is there for the tests: open it
+with File > Open to have a look, but the Reader never opens it of its
+own accord.
 
 ## The file it opens
 
@@ -37,7 +42,28 @@ A Word Atlas dataset is a `.wadb` file: a zip archive holding
 program's `atlas_pack.py` makes one. The Reader also opens a bare
 `results.db`.
 
-The first time a `.wadb` is opened the Reader unpacks it into
+**The Reader keeps its own copy.** A `.wadb` opened with File > Open
+(or named on the command line) is first copied into `datasets/`, a
+folder beside the program, and the copy is what the Reader opens and
+remembers. The file it was given can then be moved, renamed or
+replaced, or the drive it was on unplugged, and the Reader still has
+its data; and the dataset that is open is always one the Reader holds,
+which is what a zip or a USB drive made from the Tools tab carries.
+Opening the same file again copies nothing. A bare `results.db` is
+not copied: it is the main program's working file and is opened where
+it stands. `datasets/` is kept out of git (each dataset is some 100
+MB). Where the program's folder cannot be written to, the copies go
+to `~/.word_atlas_reader/library/` instead.
+
+On the computer the datasets are made on, with Word Atlas in the
+folder beside the Reader's, the Tools tab has **Fetch the newest
+dataset from Word Atlas**: one press copies the newest `.wadb` in
+Word Atlas's `reports/` into the Reader's folder and opens it, and
+the status bar says at start when a newer one is waiting there.
+**Datasets kept by the Reader**, on the same tab, lists the copies
+and removes the ones that are not open.
+
+The first time a `.wadb` is opened the Reader also unpacks it into
 `~/.word_atlas_reader/datasets/` and reads from there afterwards; a
 changed archive is unpacked again. The Reader never writes to a
 dataset: the database is opened read-only.
@@ -108,6 +134,75 @@ file. Without a key, "Copy as a prompt for claude.ai" puts the
 question, the schema and the open page on the clipboard, to paste into
 claude.ai or any assistant by hand.
 
+The **Tools** tab, the last one, holds what is wanted now and then,
+kept behind a tab so the window opens as plain as it always has. It
+has three groups, and everything in them is about the Reader and the
+dataset it has open (the tools that build the atlas are the main
+program's and are on its Workbench tab, not here):
+
+- *This dataset.* **Dataset details** says what the open file holds:
+  where it is and how it was packed, each run with its version, date
+  and pages, the rows in each table, and whether the file reads back
+  sound. Below it is a box for a reading query of your own in SQL
+  (only a single SELECT runs, the answer is laid out in columns and
+  cut at a few hundred rows, and the dataset is never written to);
+  **The tables and their columns** prints what there is to query.
+  **Fetch the newest dataset from Word Atlas** and **Datasets kept by
+  the Reader** look after the Reader's own copies (see "The file it
+  opens").
+- *This copy of the Reader.* **Check this copy** lists its version,
+  the Python and Qt under it, its program files, its guest key, where
+  its settings are and which datasets it has unpacked. **Run the
+  Reader's tests** runs `test_reader.py` and prints its lines.
+  **Guest key** says whether this copy carries one and writes a new
+  one (see below).
+- *Passing it on.* **Zip the Reader with this dataset** writes one zip
+  of the program files and the open `.wadb` for someone who has
+  Python. **Build or update a USB drive** makes a drive that installs
+  the Reader on a Windows or Linux computer (next section).
+
+What a tool reports is printed on the right of the tab; Save as text
+keeps it.
+
+## A USB drive that installs the Reader
+
+Tools tab, **Build or update a USB drive**. Pick the drive (Look again
+after plugging one in; Other folder for one not listed), tick what
+goes on it, and press the button. The drive gets one folder,
+`WordAtlas`, holding the Reader's program files, the dataset that is
+open (the Reader's own copy of it; the line in the window names it
+with its size, and Choose picks another), PyQt6 for Windows and Linux (fetched
+from PyPI once, about 180 MB, and kept on this computer for the next
+drive) and an installer. Nothing else on the drive is touched. When
+the main program, Word Atlas, is in the folder beside the Reader's it
+is offered too, with the built databases you tick; where it is not,
+that part of the window says so and the drive carries the Reader
+alone.
+
+On the other computer, open the drive's `WordAtlas` folder and
+double-click `Install-Windows.bat` (Windows) or run `bash
+install-linux.sh` in a terminal (Linux). The installer says what the
+drive holds, asks which program to install and where, copies it with
+its dataset, sees to PyQt6 without the internet, and leaves an entry
+in the applications menu (on Windows, the Start menu and the Desktop).
+The computer needs Python 3.10 or later and nothing else; on a Windows
+computer without Python the launcher says how to get it. The Reader
+then opens on the installed dataset, which the installer puts in the
+installed Reader's own `datasets/` folder.
+
+Press the same button another day and the drive is brought up to
+date: only the files that changed are copied, and the dataset it
+carried before is replaced by the new one unless you tick "Keep the
+older datasets". Running the installer again from the newer drive
+updates the install the same way; a file changed on that computer
+since is left alone and named. **Check the drive** reads every file
+back against the checksum written with it. The same drive can be
+made or updated from Word Atlas (its Workbench tab, Install menu),
+and `python3 atlas_usb.py build DRIVE` does it from a terminal.
+
+The Windows side of the installer was written on Linux and has not
+yet been run on a Windows machine.
+
 ## Giving copies away with a guest key
 
 A copy of the Reader can carry a guest API key, so the person you
@@ -126,14 +221,17 @@ side, not in the file:
    curiosity; the limit is what stops a copy that gets passed on from
    costing you more.
 2. Make an API key in that workspace, not in your own.
-3. In the Reader's folder run
+3. On the Tools tab press **Guest key**, then "Write a new one", and
+   enter the key and the days; or in the Reader's folder run
 
        python3 reader_guest.py make sk-ant-... 15
 
-   which writes `guest_key.dat` good for 15 days from today. The
+   Either writes `guest_key.dat` good for 15 days from today. The
    `.gitignore` keeps that file out of the repository.
 4. Hand over the Reader's folder (or the PyInstaller build) with
-   `guest_key.dat` and the `.wadb` inside.
+   `guest_key.dat` and the `.wadb` inside; the zip and the USB drive
+   on the Tools tab take the guest key along only when its box is
+   ticked.
 5. On the end date, delete the key in the console. The date in the
    file is a courtesy the Reader keeps; the deletion is the one nobody
    can get around.
@@ -158,16 +256,22 @@ be thought of as a small prepaid card, never as a secret.
 | `reader_guest.py` | the guest key: `make` writes `guest_key.dat`, `show` reports it |
 | `guest_key.dat` | a scrambled guest key with its end date, when a copy carries one; never committed |
 | `reader_questions.py` | the Questions list, grouped by subject |
+| `reader_tools.py` | the Tools tab: dataset details, a query of your own, this copy's tests and guest key, the zip |
+| `atlas_usb.py` | the USB drive: finds drives, makes or updates the `WordAtlas` folder on one, fetches PyQt6 for it (the same file as the main program's) |
+| `atlas_usb_dialog.py` | the USB drive's window (the same file as the main program's) |
+| `usb_install.py` | the installer, copied to a drive as `install.py` (the same file as the main program's) |
 | `reader_help.py` | help mode and the column explanations (copied from the main program's atlas_help.py) |
 | `atlas_report.py` | the page layout, shared with the main program |
 | `atlas_results.py` | the results questions, shared with the main program |
 | `atlas_listed.py` | reads the listed-links footers back (shared with the main program) |
 | `test_reader.py` | the test script: `python3 test_reader.py` before every commit |
 | `word_atlas_reader.spec` | the PyInstaller build file |
-| `sample/` | a sample dataset (Ezra, Revelation, 1 Kings from Word Atlas 0.10.69) |
+| `sample/` | a sample dataset (Ezra, Revelation, 1 Kings from Word Atlas 0.10.69), for the tests |
+| `datasets/` | the Reader's own copies of the datasets it has opened; never committed |
 
 `atlas_report.py` and `atlas_results.py` are copies of the main
-program's files and are standard library only; the column help in
+program's files and are standard library only, and the three USB
+files are likewise copies of the main program's; the column help in
 `reader_help.py` is copied from its `atlas_help.py`. When the main program
 changes them, copy them over again; the Reader's tests will say if the
 copy no longer fits.
@@ -186,14 +290,26 @@ may warn that the program is from an unknown publisher the first time
 it runs, since it is not signed; "More info" then "Run anyway" gets
 past that.
 
+A built copy travels on the USB drive too: when `dist/WordAtlasReader`
+stands in the Reader's folder, "Build or update a USB drive" puts it
+on the drive under `builds/` for the system it was built on, and on a
+Windows computer with no Python the drive's `Install-Windows.bat`
+offers to install that copy.
+
 ## Testing
 
     python3 test_reader.py
 
-Thirteen tests: opening the sample, rendering a page, the cell text,
+Sixteen tests: opening the sample, rendering a page, the cell text,
 search, the results questions, the SQL tool's refusals, the question
 loop against a stand-in API, the window offscreen, help mode and the
-histories, the guest key, and housekeeping.
+histories, the guest key, the Reader's own datasets folder, the Tools
+tab, a USB drive made, updated and installed from, and housekeeping.
+
+The tests read the sample and keep to a throwaway home folder of
+their own (`WORD_ATLAS_READER_HOME`), so running them changes nothing
+of the Reader's: its settings, its datasets and the file it opens
+next are as they were.
 
 ## If it ever freezes
 
@@ -208,6 +324,25 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.10: the Reader keeps its own copy of every dataset it is given,
+in `datasets/` beside the program, and opens that copy; at start it
+opens the last file, else the newest of its own, else the newest in
+Word Atlas's reports folder, and never the sample. Tools tab: Fetch
+the newest dataset from Word Atlas, and Datasets kept by the Reader.
+The tests use a home folder of their own and no longer leave the
+Reader pointing at the sample; the drive's installer puts the dataset
+in the installed Reader's `datasets/`; a zip made to give away
+carries its dataset there too. The drive test no longer reaches for
+the internet or flushes every disk (it took a minute on one machine).
+
+0.3.9: a Tools tab (reader_tools.py) with the parts of the main
+program's Workbench that are the Reader's own: the dataset's details,
+a reading SQL query, this copy's tests and guest key, a zip of the
+Reader with the open dataset; and a USB drive that installs the
+Reader, with its data and PyQt6, on Windows or Linux, made and
+brought up to date from the same tab (atlas_usb.py, shared with Word
+Atlas 0.10.88). The window otherwise opens exactly as before.
 
 0.3.8: atlas_results.py of Word Atlas 0.10.87 (the idiom question sets the Greek-held rows apart).
 

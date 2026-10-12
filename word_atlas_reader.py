@@ -9,6 +9,12 @@ by the same code the main program uses; any one of its tables as a
 grid that sorts by column; a search across every cell; the results
 questions (runs, shares, deltas, seams, declined, diff); and a panel
 for asking Claude questions of the data with the reader's own API key.
+The Reader keeps its own copy of each dataset it is given, in the
+datasets folder beside the program, and opens that copy from then on.
+A last tab, Tools (reader_tools.py), holds what is wanted now and
+then: what the open dataset is made of, a reading SQL query of one's
+own, the Reader's tests and guest key, and passing the Reader on as a
+zip or on a USB drive that installs it.
 
     python3 word_atlas_reader.py [dataset.wadb | results.db]
 
@@ -33,13 +39,15 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
 
 import atlas_results
 from atlas_report import render, is_numeric_cell
-from reader_data import Dataset, load_settings, save_settings
+from reader_data import (Dataset, is_sample, keep_dataset, kept_datasets, library_dir, load_settings,
+                         newest_from_atlas, save_settings)
 from reader_claude import DEFAULT_MODEL, STARTER_QUESTIONS, ApiError, clipboard_prompt, list_models, start_worker
 from reader_help import HelpMode, column_help
 import reader_guest
 import reader_questions
+from reader_tools import ToolsTab
 
-VERSION = "0.3.8"
+VERSION = "0.3.10"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -255,14 +263,7 @@ class ReaderWindow(QMainWindow):
         self._build_menus()
         self._build_body()
         self.statusBar().showMessage("Open a dataset: File > Open (a .wadb or a results.db)")
-        # Open the file named on the command line, else the last one opened;
-        # a last file that has gone (moved, renamed) is named, not passed
-        # over in silence
-        path = path or self.settings.get("last_file")
-        if path and os.path.exists(path):
-            QTimer.singleShot(0, lambda: self.open_path(path))
-        elif path:
-            self.statusBar().showMessage(f"The last dataset, {path}, is no longer there: open another with File > Open")
+        QTimer.singleShot(0, lambda: self.open_at_start(path))
 
     # --- building --------------------------------------------------------------
     def _build_menus(self):
@@ -360,6 +361,9 @@ class ReaderWindow(QMainWindow):
         self._build_search_tab()
         self._build_results_tab()
         self._build_claude_tab()
+        # The Tools tab comes last, so the tabs before it keep their places
+        self.tools_tab = ToolsTab(self)
+        self.tabs.addTab(self.tools_tab, "Tools")
         # Help mode: the ? button, F1, and the event filter that shows the notes
         self.help_mode = HelpMode(self, self.help_btn)
         self.help_btn.toggled.connect(self.help_mode.set_active)
@@ -573,20 +577,99 @@ class ReaderWindow(QMainWindow):
         self.page_view.setLineWrapMode(mode)
 
     # --- opening a file ------------------------------------------------------------
+    def open_at_start(self, named=None):
+        """
+        What the Reader shows when it starts, the first of these that
+        is there: the file named on the command line; the last file
+        opened; the newest of the Reader's own datasets; the newest
+        dataset in Word Atlas's reports folder, when Word Atlas is in
+        the folder beside this one (it is copied in and kept).  The
+        sample dataset in sample/ is for the tests and is never opened
+        here of the Reader's own accord, even if it was the last file.
+        """
+        if self.data is not None:
+            return                      # something was opened already (the tests open a file at once)
+        if named:
+            if os.path.exists(named):
+                self.open_chosen(named)
+            else:
+                self.statusBar().showMessage(f"{named} is not there: open a dataset with File > Open")
+            return
+        last = self.settings.get("last_file", "")
+        if last and os.path.exists(last) and not is_sample(last):
+            self.open_path(last)
+            self.hint_newer()
+            return
+        kept = kept_datasets()
+        if kept:
+            self.open_path(kept[0][0])
+            self.hint_newer()
+            return
+        found = newest_from_atlas()
+        if found:
+            self.open_chosen(found)
+            return
+        if last and not os.path.exists(last):
+            # A last file that has gone (moved, renamed) is named, not passed over in silence
+            self.statusBar().showMessage(f"The last dataset, {last}, is no longer there: open another with File > Open")
+
+    def hint_newer(self):
+        """Say so on the status bar when Word Atlas has packed a dataset newer than the one open."""
+        newest = newest_from_atlas()
+        if self.data is None or not newest:
+            return
+        open_now = self.data.source_path
+        if os.path.basename(newest) != os.path.basename(open_now) and \
+                os.path.getmtime(newest) > os.path.getmtime(open_now) + 2:
+            self.statusBar().showMessage(f"{self.data.describe()}.  Word Atlas has a newer dataset, "
+                                         f"{os.path.basename(newest)}: Tools tab > Fetch the newest dataset")
+
     def open_dialog(self):
-        start = os.path.dirname(self.settings.get("last_file", "")) or os.path.expanduser("~")
+        # Start where the last dataset was fetched from (the Reader's own
+        # folder is not where a new one will be), else Word Atlas's reports
+        start = self.settings.get("last_open_dir", "")
+        if not start or not os.path.isdir(start):
+            newest = newest_from_atlas()
+            start = os.path.dirname(newest) if newest else os.path.expanduser("~")
         path, _ = QFileDialog.getOpenFileName(self, "Open a Word Atlas dataset", start,
                                               "Word Atlas datasets (*.wadb *.db);;All files (*)")
         if path:
-            self.open_path(path)
+            self.open_chosen(path)
+
+    def open_chosen(self, path):
+        """
+        Open a file the reader picked.  A .wadb is first copied into
+        the Reader's own datasets folder, and the copy is what is
+        opened and remembered: the Reader then has its data whatever
+        becomes of the file it was given.  A bare results.db is opened
+        where it stands.  Returns True when a dataset is open.
+        """
+        kept, copied = path, False
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            kept, copied = keep_dataset(path)
+        except OSError as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Open dataset", f"{os.path.basename(path)} could not be copied into the "
+                                f"Reader's datasets folder ({e}).\nIt is opened where it is.")
+        else:
+            QApplication.restoreOverrideCursor()
+        self.settings["last_open_dir"] = os.path.dirname(os.path.abspath(path))
+        if not self.open_path(kept):
+            if copied:
+                os.remove(kept)         # not a dataset after all: the copy is not kept
+            return False
+        if copied:
+            self.statusBar().showMessage(f"{self.data.describe()}.  Copied into the Reader's own folder, {library_dir()}")
+        return True
 
     def open_path(self, path):
-        """Open the file, remember it, and show its newest run."""
+        """Open the file, remember it, and show its newest run.  Returns True when it opened."""
         try:
             data = Dataset.open(path)
         except Exception as e:
             QMessageBox.warning(self, "Open dataset", f"Could not open {path}:\n{e}")
-            return
+            return False
         if self.data is not None:
             self.data.close()
         self.data = data
@@ -603,6 +686,7 @@ class ReaderWindow(QMainWindow):
             self.run_box.addItem(label, run_id)
         self.run_box.blockSignals(False)
         self.run_changed(0)
+        return True
 
     def run_changed(self, index):
         """Fill the page tree for the chosen run."""
@@ -836,12 +920,19 @@ class ReaderWindow(QMainWindow):
             self._save_text(text, "results.txt", "Save results as text")
 
     def _save_text(self, text, suggested, title):
-        start = os.path.join(os.path.dirname(self.settings.get("last_file", "")) or os.path.expanduser("~"),
-                             suggested)
-        path, _ = QFileDialog.getSaveFileName(self, title, start, "Text files (*.txt);;All files (*)")
+        # Offered in the folder last saved to, else the home folder (the
+        # open dataset is in the Reader's own folder, which is no place
+        # for a reader's notes)
+        folder = self.settings.get("last_save_dir", "")
+        if not folder or not os.path.isdir(folder):
+            folder = os.path.expanduser("~")
+        path, _ = QFileDialog.getSaveFileName(self, title, os.path.join(folder, suggested),
+                                              "Text files (*.txt);;All files (*)")
         if path:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
+            self.settings["last_save_dir"] = os.path.dirname(path)
+            save_settings(self.settings)
             self.statusBar().showMessage(f"Saved {path}")
 
     # --- Claude ------------------------------------------------------------------------------
@@ -956,6 +1047,7 @@ class ReaderWindow(QMainWindow):
         # event would reach a filter whose window is gone
         self.help_mode.set_active(False)
         QApplication.instance().removeEventFilter(self.help_mode)
+        self.tools_tab.stop()          # a test run started from the Tools tab does not outlive the window
         if self.data is not None:
             self.data.close()
         event.accept()

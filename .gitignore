@@ -3,3 +3,6 @@ build/
 dist/
 *.spec.bak
 guest_key.dat
+# The Reader's own copies of the datasets it has opened (each some 100 MB): never committed
+datasets/
+*.part

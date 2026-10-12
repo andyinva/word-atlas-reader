@@ -25,10 +25,24 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(HERE)
 
-# The newest dataset in sample/: the one the repository carries, or the
-# one a bundle (atlas_dist.py) put there
+# The tests keep to a home folder of their own, made here and thrown
+# away at the end (0.3.10).  Set before reader_data is first imported,
+# it sends the Reader's settings, its unpacked datasets and its own
+# datasets folder there, so a test run changes nothing of the real
+# Reader's: the dataset it opens next time is the one it had open
+# before, not the sample the tests used.
+import atexit
+import shutil
+TEST_HOME = tempfile.mkdtemp(prefix="word_atlas_reader_tests_")
+os.environ["WORD_ATLAS_READER_HOME"] = TEST_HOME
+atexit.register(shutil.rmtree, TEST_HOME, ignore_errors=True)
+
+# The dataset the tests read: the newest in sample/ (the one the
+# repository carries), or, in a copy that has no sample folder (a zip
+# made to give away), the newest in its datasets folder
 import glob
 SAMPLE = (sorted(glob.glob(os.path.join(HERE, "sample", "*.wadb")), key=os.path.getmtime) or
+          sorted(glob.glob(os.path.join(HERE, "datasets", "*.wadb")), key=os.path.getmtime) or
           [os.path.join(HERE, "sample", "word_atlas_0.10.69_2026-10-05.wadb")])[-1]
 
 
@@ -392,6 +406,182 @@ def _():
             w.close()
         finally:
             reader_guest.load = real_load
+
+
+# --- the Reader's own datasets ----------------------------------------------------------------
+@test("a dataset opened is copied into the Reader's own folder; the sample is never opened at start")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    import reader_data
+    import word_atlas_reader as R
+    # The tests' own home folder is in force, so nothing here reaches the real Reader's
+    assert reader_data.ISOLATED and reader_data.SETTINGS_PATH.startswith(TEST_HOME), reader_data.SETTINGS_PATH
+    library = reader_data.library_dir()
+    assert library.startswith(TEST_HOME), library
+    for path, _ in reader_data.kept_datasets():
+        reader_data.forget_dataset(path)
+    with tempfile.TemporaryDirectory() as tmp:
+        # A dataset that arrives from somewhere else (a download, a drive)
+        given = os.path.join(tmp, "word_atlas_given.wadb")
+        shutil.copy2(SAMPLE, given)
+        w = R.ReaderWindow()
+        assert w.open_chosen(given)
+        kept = os.path.join(library, "word_atlas_given.wadb")
+        assert os.path.exists(kept), "the dataset was not copied into the Reader's folder"
+        assert os.path.abspath(w.data.source_path) == os.path.abspath(kept), w.data.source_path
+        assert w.settings["last_file"] == kept and w.settings["last_open_dir"] == tmp
+        w.close()
+        # Given again unchanged: nothing copied.  The file it came from can go: the Reader has its own
+        assert reader_data.keep_dataset(given) == (kept, False)
+        os.remove(given)
+        # A bare results.db is opened where it stands, not copied
+        assert reader_data.keep_dataset(reader_data.Dataset._unpack(kept)[0])[1] is False
+        # A file that is no dataset is not left behind in the folder
+        junk = os.path.join(tmp, "junk.wadb")
+        import zipfile
+        with zipfile.ZipFile(junk, "w") as z:
+            z.writestr("readme.txt", "not a dataset")
+        w = R.ReaderWindow()
+        real_warning = R.QMessageBox.warning
+        R.QMessageBox.warning = lambda *a, **k: None          # the refusal's message box, not shown in a test
+        try:
+            assert not w.open_chosen(junk)
+        finally:
+            R.QMessageBox.warning = real_warning
+        assert not os.path.exists(os.path.join(library, "junk.wadb")), "a refused file was kept"
+        # At start: the last file was the sample (as an earlier test run
+        # could leave it), and the Reader opens its own dataset instead
+        w.settings["last_file"] = SAMPLE
+        w.open_at_start()
+        assert w.data is not None and os.path.abspath(w.data.source_path) == os.path.abspath(kept), "opened the sample"
+        w.close()
+        # With no dataset of its own it opens nothing, rather than the sample
+        reader_data.forget_dataset(kept)
+        assert not os.path.exists(kept) and not reader_data.kept_datasets()
+        assert not os.path.exists(os.path.join(reader_data.DATASET_DIR, "word_atlas_given")), "unpacked copy left"
+        w = R.ReaderWindow()
+        w.settings["last_file"] = SAMPLE
+        w.open_at_start()
+        assert w.data is None, "the sample was opened at start"
+        w.close()
+
+
+# --- the Tools tab and the USB drive ---------------------------------------------------------
+@test("the Tools tab reports the dataset, runs a reading query in columns, refuses a writing one")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QPoint
+    app = QApplication.instance() or QApplication(sys.argv)
+    import word_atlas_reader as R
+    import reader_tools
+    w = R.ReaderWindow()
+    w.open_path(SAMPLE)
+    app.processEvents()
+    # The tab is the last one, so the tabs before it keep their numbers
+    assert w.tabs.tabText(w.tabs.count() - 1) == "Tools" and w.tabs.tabText(4) == "Ask Claude"
+    t = w.tools_tab
+    t.dataset_details()
+    text = t.output.toPlainText()
+    assert "Runs (a run is one pass" in text and "The file reads back sound." in text, text[-300:]
+    t.output.clear()
+    t.sql_edit.setText("SELECT kind, COUNT(*) AS pages FROM pages GROUP BY kind ORDER BY kind")
+    t.run_query()
+    lines = t.output.toPlainText().splitlines()
+    head = next(i for i, l in enumerate(lines) if l.startswith("kind"))
+    assert set(lines[head + 1]) <= {"-", " "}, "no rule under the column headings"
+    assert lines[head + 2].split()[0] == "Book" and lines[head + 2].split()[1].isdigit(), lines[head + 2]
+    t.sql_edit.setText("DELETE FROM pages")
+    t.run_query()
+    assert "Refused" in t.output.toPlainText()
+    assert w.data.db.execute("SELECT COUNT(*) FROM pages").fetchone()[0] > 0
+    t.check_copy()
+    assert f"Word Atlas Reader {R.VERSION}" in t.output.toPlainText()
+    assert "MISSING" not in t.output.toPlainText(), "a program file is missing from this copy"
+    assert "SELECT" in w.help_mode.text_for(t.sql_edit, QPoint(0, 0))
+    # The zip to give away: the program, the open dataset, a note on starting
+    import zipfile
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "reader.zip")
+        reader_tools.make_reader_zip(HERE, t.open_wadb(), out)
+        names = zipfile.ZipFile(out).namelist()
+        for need in ("word_atlas_reader/word_atlas_reader.py", "word_atlas_reader/reader_tools.py",
+                     "word_atlas_reader/datasets/" + os.path.basename(SAMPLE), "word_atlas_reader/START.txt"):
+            assert need in names, f"{need} not in the zip"
+        assert "word_atlas_reader/guest_key.dat" not in names, "the guest key went along unasked"
+    w.close()
+
+
+@test("a USB drive is made, brought up to date, and installs the Reader with its dataset")
+def _():
+    import json
+    import subprocess
+    import atlas_usb
+    with tempfile.TemporaryDirectory() as tmp:
+        drive, dest, home = (os.path.join(tmp, d) for d in ("drive", "installed", "home"))
+        for d in (drive, home):
+            os.makedirs(d)
+        # The Reader alone, with the sample dataset, and no PyQt6 fetched
+        # (sync off: there is no drive to pull out, and flushing every disk can take a minute)
+        options = atlas_usb.default_options(None, HERE)
+        options.update({"atlas": False, "dataset": SAMPLE, "wheels": False, "sync": False})
+        lines = []
+        manifest = atlas_usb.build(drive, options, None, HERE, log=lines.append)
+        root = atlas_usb.drive_root(drive)
+        for need in ("install.py", "Install-Windows.bat", "install-linux.sh", "README.txt",
+                     "programs/word_atlas_reader/word_atlas_reader.py", "data/reader/" + os.path.basename(SAMPLE)):
+            assert os.path.exists(os.path.join(root, *need.split("/"))), f"{need} not on the drive"
+        import word_atlas_reader as R
+        assert manifest["reader"]["version"] == R.VERSION and not manifest.get("atlas")
+        assert not any("guest_key" in rel for rel in manifest["files"]), "the guest key went along unasked"
+        # Made again: nothing to copy
+        items, groups = atlas_usb.gather(options, None, HERE)
+        plan = atlas_usb.make_plan(root, items, groups, options)
+        assert not plan.copy and not plan.remove, plan.summary()
+        # A file whose date alone differs (touched, or checked out again) is not copied again ...
+        held = atlas_usb.read_manifest(root)
+        held["files"]["programs/word_atlas_reader/README.md"]["mtime"] = "1"
+        plan = atlas_usb.make_plan(root, items, groups, options, held)
+        assert not plan.copy, [i.rel for i in plan.copy]
+        # ... and a file whose contents differ is, that file and no other
+        held["files"]["programs/word_atlas_reader/README.md"]["sha256"] = "0" * 64
+        plan = atlas_usb.make_plan(root, items, groups, options, held)
+        assert [i.rel for i in plan.copy] == ["programs/word_atlas_reader/README.md"], [i.rel for i in plan.copy]
+        # A newer dataset takes the older one's place on the drive
+        newer = os.path.join(tmp, "word_atlas_9.9.9_2099-01-01.wadb")
+        with open(SAMPLE, "rb") as fin, open(newer, "wb") as fout:
+            fout.write(fin.read())
+        options["dataset"] = newer
+        atlas_usb.build(drive, options, None, HERE, log=lines.append)
+        on_drive = sorted(os.listdir(os.path.join(root, "data", "reader")))
+        assert on_drive == [os.path.basename(newer)], on_drive
+        assert not atlas_usb.check_drive(drive, log=lines.append), "the drive does not read back sound"
+        # The drive's installer, as a new user would run it, with a home folder of its own
+        # (--no-pyqt: a test never fetches PyQt6 from the internet)
+        env = dict(os.environ, HOME=home, USERPROFILE=home, QT_QPA_PLATFORM="offscreen")
+        env.pop("WORD_ATLAS_READER_HOME", None)
+        command = [sys.executable, os.path.join(root, "install.py"), "--app", "reader", "--dest", dest,
+                   "--yes", "--no-shortcuts", "--no-pyqt"]
+        out = subprocess.run(command, capture_output=True, text=True, env=env, timeout=300)
+        assert out.returncode == 0, out.stdout[-400:] + out.stderr[-400:]
+        # The dataset lands in the installed Reader's own datasets folder
+        for need in ("word_atlas_reader/word_atlas_reader.py", "word_atlas_reader/datasets/" + os.path.basename(newer),
+                     "start_word_atlas_reader.pyw", "installed.json"):
+            assert os.path.exists(os.path.join(dest, *need.split("/"))), f"{need} not installed"
+        # The Reader will open the installed dataset on its first start
+        with open(os.path.join(home, ".word_atlas_reader", "settings.json"), encoding="utf-8") as f:
+            assert json.load(f)["last_file"].endswith(os.path.basename(newer))
+        # The installed copy opens the installed dataset
+        check = ("import sys; sys.path.insert(0, sys.argv[1]); from reader_data import Dataset; "
+                 "d = Dataset.open(sys.argv[2]); print(len(d.runs()))")
+        got = subprocess.run([sys.executable, "-c", check, os.path.join(dest, "word_atlas_reader"),
+                              os.path.join(dest, "word_atlas_reader", "datasets", os.path.basename(newer))],
+                             capture_output=True, text=True, env=env, timeout=120)
+        assert got.stdout.strip() == "1", got.stdout + got.stderr
+        # Installed again: nothing copied
+        out = subprocess.run(command, capture_output=True, text=True, env=env, timeout=300)
+        assert "0 file(s) copied" in out.stdout, out.stdout[-300:]
+    return f"{len(manifest['files'])} files "
 
 
 # --- housekeeping --------------------------------------------------------------------------

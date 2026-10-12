@@ -36,7 +36,9 @@ HELP = {
     "pages": "The pages the run holds, grouped by kind: Book, Chapter, Section, Passage, Word, Kin, "
              "Testament, Compare.  Click one to show it on the Page and Table tabs.",
     "tabs": "The views of the chosen page: Page (as text), Table (one table as a grid), Search (hits), "
-            "Results (the canon-wide questions from the Results menu) and Ask Claude.",
+            "Results (the canon-wide questions from the Results menu) and Ask Claude.  Tools, the last "
+            "tab, holds what is wanted now and then: the dataset's details, a query of your own, this "
+            "copy's tests and guest key, and passing the Reader on as a zip or on a USB drive.",
     "jump": "Jump to a section of the page: the text scrolls so that section's title is at the top.",
     "wrap": "Wrap long lines in the page text.  Off, the page is exactly as the main program's text file lays "
             "it out, and tables keep their columns; on, the long note lines fold to the window's width "
@@ -78,6 +80,32 @@ HELP = {
     "queries": "The SQL queries Claude ran to answer, in order, including any the Reader refused (only a "
                "single SELECT may run).",
     "title": "The section's title: its number on the page, then what it measures.",
+    "tools_dataset": "What the open file holds: where it is, how it was packed, each run (one pass of Word "
+                     "Atlas) with its version, date and pages, the rows in each table, and whether the "
+                     "file reads back sound.",
+    "tools_sql": "A reading query of your own against the open dataset, in SQL.  Only one SELECT (or WITH) "
+                 "statement runs, the answer is cut at a few hundred rows, and the dataset is never written "
+                 "to.  'The tables and their columns' prints what there is to query.",
+    "tools_fetch": "Where Word Atlas is in the folder beside the Reader's: copy the newest dataset it has packed "
+                   "(its reports folder) into the Reader's own datasets folder and open it.  The Reader then "
+                   "reads its own copy, and that copy is what a USB drive made from the Reader carries.",
+    "tools_kept": "The datasets the Reader has kept: every .wadb opened is copied into the datasets folder beside "
+                  "the program, so the Reader has its data whatever becomes of the file it was given.  This "
+                  "lists them and offers to remove the ones that are not open, with their unpacked copies.",
+    "tools_copy": "What this copy of the Reader is made of: its version and the versions of Python and Qt "
+                  "under it, its program files, the guest key it carries, where its settings are kept, "
+                  "and the datasets it has unpacked.",
+    "tools_tests": "Run the Reader's own tests (test_reader.py) and print their lines here: about a minute. "
+                   "Worth doing after the program's files change.",
+    "tools_guest": "The guest key: an API key a copy of the Reader can carry, so the person given the copy "
+                   "can ask Claude questions until an end date without a key of their own.  This shows "
+                   "whether this copy has one and writes a new one; the key itself is never shown.",
+    "tools_zip": "One zip file holding the Reader's program files and the open dataset, to send to someone "
+                 "who has (or will install) Python and PyQt6.",
+    "tools_usb": "Make a USB drive that installs the Reader on a Windows or Linux computer, with the dataset "
+                 "and the PyQt6 it needs (and Word Atlas too, when it is on this computer).  The same "
+                 "button later brings the drive up to date, copying only what has changed.",
+    "tools_output": "What the tools on the left report.  Save as text keeps it; Clear empties it.",
 }
 
 # The column headings of the tables, copied from the main program
