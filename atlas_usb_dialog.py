@@ -20,10 +20,10 @@ import os
 import sys
 import time
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
                              QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QProgressBar,
-                             QPushButton, QScrollArea, QVBoxLayout, QWidget)
+                             QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 import atlas_usb
 
@@ -80,7 +80,7 @@ class UsbDialog(QDialog):
         """dataset: a .wadb to offer first (the one open in the Reader), else the newest found."""
         super().__init__(parent)
         self.setWindowTitle("Build or update a USB drive")
-        self.resize(820, 720)
+        self.resize(820, 800)       # tall enough that the choices show without scrolling on most screens
         self.settings = atlas_usb.load_settings()
         # The two programs: where this copy finds them, or where the user said they are
         self.atlas_dir = self._known_dir("atlas_dir", atlas_usb.find_atlas_dir(), "word_atlas.py")
@@ -101,6 +101,31 @@ class UsbDialog(QDialog):
         return saved if saved and os.path.exists(os.path.join(saved, marker)) else None
 
     # --- layout ---------------------------------------------------------------------------
+    @staticmethod
+    def _fit(check):
+        """
+        Let a tick box be made narrower than its words.  A tick box
+        does not wrap, and left to itself it insists on room for every
+        word: one long line then makes the whole pane wider than the
+        window, a sideways scroll bar appears, and the button at the end
+        of the line (Choose...) slides out of sight.  Fitted, the line
+        is cut short at the pane's edge instead, and its whole text is
+        in the tip that shows when the pointer rests on it.
+        """
+        check.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        check.setMinimumWidth(60)
+        return check
+
+    @staticmethod
+    def _note(layout):
+        """A wrapped line of detail under a tick box, set in under its words; returns the label."""
+        label = QLabel()
+        label.setWordWrap(True)
+        label.setContentsMargins(24, 0, 0, 2)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(label)
+        return label
+
     def _build(self):
         box = QVBoxLayout(self)
         intro = QLabel("A drive made here installs the Word Atlas Reader, Word Atlas, or both, with their data, on a "
@@ -143,21 +168,26 @@ class UsbDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(choices)
-        outer.addWidget(scroll, 3)
+        outer.addWidget(scroll, 5)        # the choices get most of the height; the log below needs little
 
         # The Reader and its dataset
         group = QGroupBox("The Word Atlas Reader")
         g = QVBoxLayout(group)
         row = QHBoxLayout()
-        self.reader_box = QCheckBox()
+        self.reader_box = self._fit(QCheckBox())
         self.reader_box.toggled.connect(self.update_plan)
         row.addWidget(self.reader_box, 1)
         self.reader_find = QPushButton("Find...")
         self.reader_find.clicked.connect(lambda: self.find_program("reader"))
         row.addWidget(self.reader_find)
         g.addLayout(row)
+        self.reader_note = self._note(g)        # the folder it is taken from
+        # The dataset: its name on the tick box, with the Choose button
+        # always in sight at the end of the line; its size and what it
+        # holds on a line of their own beneath (0.10.93: on one line
+        # they pushed the button out of the window)
         row = QHBoxLayout()
-        self.dataset_box = QCheckBox()
+        self.dataset_box = self._fit(QCheckBox())
         self.dataset_box.toggled.connect(self.update_plan)
         row.addWidget(self.dataset_box, 1)
         choose = QPushButton("Choose...")
@@ -165,14 +195,18 @@ class UsbDialog(QDialog):
         choose.clicked.connect(self.choose_dataset)
         row.addWidget(choose)
         g.addLayout(row)
-        self.pack_box = QCheckBox("Pack a fresh dataset from results.db first (results.db is newer than the dataset)")
+        self.dataset_note = self._note(g)       # its size, runs, pages and date
+        self.pack_box = self._fit(QCheckBox("Pack a fresh dataset first (results.db is newer than this one)"))
+        self.pack_box.setToolTip("Run atlas_pack.py before the drive is made, so the drive carries the pages of "
+                                 "the newest canon run: results.db is newer than the dataset named above")
         self.pack_box.toggled.connect(self.update_plan)
         g.addWidget(self.pack_box)
-        self.keep_box = QCheckBox("Keep the older datasets already on the drive")
+        self.keep_box = self._fit(QCheckBox("Keep the older datasets already on the drive"))
         self.keep_box.setChecked(bool(self.settings.get("keep_old")))
         self.keep_box.toggled.connect(self.update_plan)
         g.addWidget(self.keep_box)
-        self.guest_box = QCheckBox("Include the guest key (guest_key.dat), so the copy can ask Claude until its end date")
+        self.guest_box = self._fit(QCheckBox("Include the guest key (guest_key.dat)"))
+        self.guest_box.setToolTip("With the guest key the copy can ask Claude its questions until the key's end date")
         self.guest_box.setChecked(bool(self.settings.get("guest_key")))
         g.addWidget(self.guest_box)
         box.addWidget(group)
@@ -181,13 +215,14 @@ class UsbDialog(QDialog):
         group = QGroupBox("Word Atlas")
         g = QVBoxLayout(group)
         row = QHBoxLayout()
-        self.atlas_box = QCheckBox()
+        self.atlas_box = self._fit(QCheckBox())
         self.atlas_box.toggled.connect(self.atlas_toggled)
         row.addWidget(self.atlas_box, 1)
         self.atlas_find = QPushButton("Find...")
         self.atlas_find.clicked.connect(lambda: self.find_program("atlas"))
         row.addWidget(self.atlas_find)
         g.addLayout(row)
+        self.atlas_note = self._note(g)         # the folder it is taken from
         self.data_label = QLabel("Its program files, the metadata backup and the cross references always go.  "
                                  "The built databases to take as well (rest the pointer on one to read what it is):")
         self.data_label.setWordWrap(True)
@@ -197,11 +232,14 @@ class UsbDialog(QDialog):
         box.addWidget(group)
 
         # PyQt6
-        self.wheels_box = QCheckBox("PyQt6 for Windows and Linux, so installing needs no internet "
-                                    "(about 180 MB; fetched once, then kept on this computer)")
+        self.wheels_box = self._fit(QCheckBox("PyQt6 for Windows and Linux, so installing needs no internet"))
+        self.wheels_box.setToolTip("The drive carries PyQt6 for both systems, so the other computer needs only "
+                                   "Python: about 180 MB, fetched once and then kept on this computer")
         self.wheels_box.setChecked(self.settings.get("wheels", True))
         self.wheels_box.toggled.connect(self.update_plan)
         box.addWidget(self.wheels_box)
+        self.wheels_note = self._note(box)
+        self.wheels_note.setText("About 180 MB; fetched once, then kept on this computer.")
         box.addStretch(1)
         box = outer                       # what follows is below the scrolling pane again
 
@@ -238,28 +276,31 @@ class UsbDialog(QDialog):
         """Say which programs were found and what could go with each; called again after Find."""
         # The Reader
         if self.reader_dir:
-            self.reader_box.setText(f"Word Atlas Reader {atlas_usb.reader_version(self.reader_dir)}  "
-                                    f"({self.reader_dir})")
+            self.reader_box.setText(f"Word Atlas Reader {atlas_usb.reader_version(self.reader_dir)}")
+            self.reader_note.setText(f"from {self.reader_dir}")
             self.reader_box.setEnabled(True)
             self.reader_box.setChecked(self.settings.get("reader", True))
         else:
-            self.reader_box.setText("The Reader was not found beside this program (Find... says where it is)")
+            self.reader_box.setText("The Reader was not found beside this program: Find... says where it is")
             self.reader_box.setEnabled(False)
             self.reader_box.setChecked(False)
         self.reader_find.setVisible(self.reader_dir is None)
+        self.reader_note.setVisible(self.reader_dir is not None)
         has_key = bool(self.reader_dir) and os.path.exists(os.path.join(self.reader_dir, "guest_key.dat"))
         self.guest_box.setVisible(has_key)
         self.show_dataset()
         # Word Atlas
         if self.atlas_dir:
-            self.atlas_box.setText(f"Word Atlas {atlas_usb.atlas_version(self.atlas_dir)}  ({self.atlas_dir})")
+            self.atlas_box.setText(f"Word Atlas {atlas_usb.atlas_version(self.atlas_dir)}")
+            self.atlas_note.setText(f"from {self.atlas_dir}")
             self.atlas_box.setEnabled(True)
             self.atlas_box.setChecked(self.settings.get("atlas", True))
         else:
-            self.atlas_box.setText("Word Atlas was not found beside this program (Find... says where it is)")
+            self.atlas_box.setText("Word Atlas was not found beside this program: Find... says where it is")
             self.atlas_box.setEnabled(False)
             self.atlas_box.setChecked(False)
         self.atlas_find.setVisible(self.atlas_dir is None)
+        self.atlas_note.setVisible(self.atlas_dir is not None)
         self.data_label.setVisible(self.atlas_dir is not None)
         # The databases, two to a row, each with its size and its note
         while self.data_grid.count():
@@ -275,7 +316,7 @@ class UsbDialog(QDialog):
                 [k for k, _rel, _default, _note in atlas_usb.ATLAS_DATA if k != "atlas_source.db"]
             for i, d in enumerate(atlas_usb.atlas_data_choices(self.atlas_dir)):
                 size = atlas_usb.mb(d["size"]) if d["path"] else "not on this computer"
-                check = QCheckBox(f"{d['key']}  ({size})")
+                check = self._fit(QCheckBox(f"{d['key']}  ({size})"))
                 check.setToolTip(d["note"])
                 check.setEnabled(d["path"] is not None)
                 ticked = d["key"] in saved if saved is not None and d["key"] in known else d["default"]
@@ -288,15 +329,21 @@ class UsbDialog(QDialog):
     def show_dataset(self):
         """Name the dataset that would go on the drive, and offer a fresh pack when results.db is newer."""
         if self.dataset and os.path.exists(self.dataset):
-            self.dataset_box.setText(f"Dataset {os.path.basename(self.dataset)}  "
-                                     f"({atlas_usb.mb(os.path.getsize(self.dataset))}; "
-                                     f"{atlas_usb.dataset_summary(self.dataset)})")
+            self.dataset_box.setText(f"Dataset {os.path.basename(self.dataset)}")
+            self.dataset_note.setText(f"{atlas_usb.mb(os.path.getsize(self.dataset))}; "
+                                      f"{atlas_usb.dataset_summary(self.dataset)}; from "
+                                      f"{os.path.dirname(self.dataset)}")
+            self.dataset_note.setVisible(True)
             self.dataset_box.setEnabled(True)
             self.dataset_box.setChecked(True)
         else:
-            self.dataset_box.setText("No dataset (.wadb) found: Choose... picks one, or pack one below")
+            self.dataset_box.setText("No dataset (.wadb) found: Choose... picks one")
+            self.dataset_note.setVisible(False)
             self.dataset_box.setEnabled(False)
             self.dataset_box.setChecked(False)
+        # A line cut short at the pane's edge can still be read whole
+        for check in (self.dataset_box,):
+            check.setToolTip(check.text())
         due = atlas_usb.results_newer_than(self.dataset, self.atlas_dir)
         self.pack_box.setVisible(due)
         self.pack_box.setChecked(due)

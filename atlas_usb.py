@@ -110,7 +110,8 @@ ATLAS_DATA = [
     ("atlas_source.db", "atlas_source.db", True,
      "Word Atlas's own Bible text, taken out of bibles.db by atlas_source.py: the King James with its "
      "Strong's numbers and the translations free of copyright.  With it an installed copy can rebuild "
-     "its atlas and needs no bibles.db"),
+     "its atlas and needs no bibles.db.  Not here yet?  Builds > Take Word Atlas's own text out of "
+     "bibles.db makes it"),
     ("lxx.db", "lxx.db", False,
      "the Greek and Hebrew layer.  Holds Rahlfs' Septuagint (CC BY-NC-SA: pass it on with its credit, "
      "never for sale) and STEPBible's texts (CC BY)"),
@@ -119,10 +120,11 @@ ATLAS_DATA = [
      "giving a copy away"),
     ("results.db", os.path.join("reports", "results.db"), False,
      "the results database behind the Results menu.  Large; the Reader's dataset already carries its pages"),
-    ("bibles.db", "bibles.db", False,
-     "Bible Search Lite's whole database.  Not needed where atlas_source.db goes.  It holds "
-     "translations still under copyright: for your own computers only"),
 ]
+# bibles.db, Bible Search Lite's whole database, was on this list until
+# 0.10.93.  Word Atlas no longer reads it once atlas_source.db is made
+# (the parts it needs are in that file), and it holds translations
+# still under copyright, so the drive does not offer to carry it.
 
 
 class Cancelled(Exception):
@@ -244,16 +246,6 @@ def atlas_files(atlas_dir):
     return program_files(atlas_dir, ATLAS_EXTRA_FILES, skip=ATLAS_NOT_PROGRAM)
 
 
-def find_bibles_db(atlas_dir):
-    """bibles.db where Word Atlas itself would find it (beside the program, or Bible Search Lite's)."""
-    for path in (os.path.join(atlas_dir, "bibles.db"),
-                 os.path.expanduser("~/projects/bible-search-lite/database/bibles.db"),
-                 os.path.expanduser("~/Documents/BibleSearchLite/database/bibles.db")):
-        if os.path.exists(path):
-            return path
-    return None
-
-
 def find_strongs_csv(atlas_dir):
     """strongs.csv beside the program or in the strongs3 folder it came in."""
     for path in (os.path.join(atlas_dir, "strongs.csv"),
@@ -272,9 +264,7 @@ def atlas_data_choices(atlas_dir):
     """
     out = []
     for key, rel, default, note in ATLAS_DATA:
-        if key == "bibles.db":
-            path = find_bibles_db(atlas_dir)
-        elif key == "strongs.csv":
+        if key == "strongs.csv":
             path = find_strongs_csv(atlas_dir)
         else:
             path = os.path.join(atlas_dir, rel)
