@@ -87,7 +87,7 @@ PYPI_URL = "https://pypi.org/pypi/{name}/json"
 # Word Atlas's files that are built, private or too large to be program
 # files.  The built databases go on the drive only when chosen (see
 # ATLAS_DATA below); the rest never go.
-ATLAS_NOT_PROGRAM = {"atlas.db", "lxx.db", "bibles.db", "metadata.db", "translations.db", "translations_index.db",
+ATLAS_NOT_PROGRAM = {"atlas.db", "atlas_source.db", "lxx.db", "bibles.db", "metadata.db", "translations.db", "translations_index.db",
                      "sefaria_links.db", "richness_cache.json", "test_bibles.db", "lxx_backup.db",
                      "metadata_test_backup.db", "strongs_export.tsv.gz", "strongs.csv"}
 # Program files are the top-level files with these endings, and these names
@@ -107,6 +107,10 @@ ATLAS_DATA = [
      "the other translations as witnesses (the translations and families columns)"),
     ("strongs.csv", "strongs.csv", True,
      "the Strong's dictionary (strongs3 project, MIT licence)"),
+    ("atlas_source.db", "atlas_source.db", True,
+     "Word Atlas's own Bible text, taken out of bibles.db by atlas_source.py: the King James with its "
+     "Strong's numbers and the translations free of copyright.  With it an installed copy can rebuild "
+     "its atlas and needs no bibles.db"),
     ("lxx.db", "lxx.db", False,
      "the Greek and Hebrew layer.  Holds Rahlfs' Septuagint (CC BY-NC-SA: pass it on with its credit, "
      "never for sale) and STEPBible's texts (CC BY)"),
@@ -116,8 +120,8 @@ ATLAS_DATA = [
     ("results.db", os.path.join("reports", "results.db"), False,
      "the results database behind the Results menu.  Large; the Reader's dataset already carries its pages"),
     ("bibles.db", "bibles.db", False,
-     "the Bible text database, needed only to rebuild the atlas.  It holds translations still under "
-     "copyright: for your own computers only"),
+     "Bible Search Lite's whole database.  Not needed where atlas_source.db goes.  It holds "
+     "translations still under copyright: for your own computers only"),
 ]
 
 

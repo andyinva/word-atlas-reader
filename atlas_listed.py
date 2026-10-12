@@ -72,9 +72,11 @@ def candidate_paths():
     paths.append(os.path.join(PROGRAM_DIR, "cross_references.db"))
     try:
         # Imported here, not at the top: the Reader carries a copy of this
-        # module for parse_footer and has no atlas_text
-        import atlas_text
-        paths.append(atlas_text.find_database())
+        # module for parse_footer and has no atlas_source.  Every text
+        # database is offered, since Word Atlas's own atlas_source.db
+        # leaves the cross references in bibles.db
+        import atlas_source
+        paths.extend(atlas_source.candidates())
     except (ImportError, SystemExit):
         pass
     return paths

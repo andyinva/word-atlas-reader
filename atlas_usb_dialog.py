@@ -267,12 +267,19 @@ class UsbDialog(QDialog):
         self.data_boxes = {}
         if self.atlas_dir:
             saved = self.settings.get("atlas_data")
+            # The databases that could be ticked when the ticks were last
+            # saved.  One that was not there to tick then (atlas_source.db,
+            # new in 0.10.92, or a file built since) was never chosen or
+            # refused, so it starts as the list says, not unticked
+            known = self.settings.get("atlas_data_known") or \
+                [k for k, _rel, _default, _note in atlas_usb.ATLAS_DATA if k != "atlas_source.db"]
             for i, d in enumerate(atlas_usb.atlas_data_choices(self.atlas_dir)):
                 size = atlas_usb.mb(d["size"]) if d["path"] else "not on this computer"
                 check = QCheckBox(f"{d['key']}  ({size})")
                 check.setToolTip(d["note"])
                 check.setEnabled(d["path"] is not None)
-                check.setChecked(d["path"] is not None and (d["key"] in saved if saved is not None else d["default"]))
+                ticked = d["key"] in saved if saved is not None and d["key"] in known else d["default"]
+                check.setChecked(d["path"] is not None and ticked)
                 check.toggled.connect(self.update_plan)
                 self.data_boxes[d["key"]] = check
                 self.data_grid.addWidget(check, i // 2, i % 2)
@@ -426,6 +433,7 @@ class UsbDialog(QDialog):
             # Remember the ticks for next time
             self.settings.update({"drive": drive, "reader": options["reader"], "atlas": options["atlas"],
                                   "atlas_data": options["atlas_data"], "wheels": options["wheels"],
+                                  "atlas_data_known": [k for k, c in self.data_boxes.items() if c.isEnabled()],
                                   "guest_key": options["guest_key"], "keep_old": options["keep_old"]})
             atlas_usb.save_settings(self.settings)
         pack_from = None

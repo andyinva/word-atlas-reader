@@ -244,7 +244,8 @@ def install_atlas(manifest, dest, copier):
             + (done.stderr.strip().splitlines() or [""])[-1])
     if not os.path.exists(os.path.join(app_dir, "atlas.db")):
         say("  Note: this drive carries no atlas.db.  Word Atlas will open on its Workbench tab, where\n"
-            "  Builds > Build atlas.db makes one (it needs bibles.db beside the program).")
+            "  Builds > Build atlas.db makes one (it needs atlas_source.db, which the drive can carry,\n"
+            "  or bibles.db beside the program).")
     return app_dir
 
 
