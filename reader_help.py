@@ -69,6 +69,19 @@ HELP = {
     "heat_tags": "Show the Strong's number of each word under its verse, from the tags the atlas is built on.",
     "heat_text": "The King James verses of the window, spot, passage or reference chosen, from the text the "
                  "dataset carries.",
+    "tools_update_program": "Ask GitHub (the word-atlas-reader repository) for the newest Reader.  When it is "
+                            "newer than this copy, bring it in: replace this copy's program files (the old ones "
+                            "kept in a backup folder under the Reader's home folder; datasets, settings and the "
+                            "guest key untouched) or put it into another folder.  A built copy cannot replace "
+                            "itself and offers the source instead.",
+    "tools_update_dataset": "Ask GitHub's releases of the repository for the newest dataset (.wadb).  When the "
+                            "Reader does not have it, download it into the Reader's datasets folder and open it, "
+                            "and, if ticked, remove the older datasets it keeps.",
+    "tools_install": "Check the install this copy belongs to (a copy installed from a USB drive): every file "
+                     "against the drive's checksum, the datasets, PyQt6, a window, the starters and shortcuts, "
+                     "any error a program left when it failed to start, and what to do about each problem.  The "
+                     "report is saved as install_report.txt in the install folder: the file to send when asking "
+                     "for help.",
     "jump": "Jump to a section of the page: the text scrolls so that section's title is at the top.",
     "wrap": "Wrap long lines in the page text.  Off, the page is exactly as the main program's text file lays "
             "it out, and tables keep their columns; on, the long note lines fold to the window's width "

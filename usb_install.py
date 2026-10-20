@@ -14,6 +14,16 @@ Install-Windows.bat (Windows) or install-linux.sh (Linux), or directly:
     python3 install.py --no-shortcuts      make no menu or Desktop entries
     python3 install.py --no-pyqt           leave PyQt6 alone: no check, nothing unpacked or fetched
     python3 install.py --list              say what the drive holds and stop
+    python3 install.py --check             check an install and write its report, copying nothing
+                                           (also: python3 usb_install.py --check in the installed
+                                           word_atlas_reader folder, without the drive)
+
+Every run ends with an install report (install_report.txt in the
+install folder): every installed file checked against the drive's
+checksum, the datasets read back, PyQt6 loaded and a window opened, the
+starters and menu entries looked for, any error a program left when it
+last failed to start, and for each problem what to do about it.  It is
+the file to send when asking for help.
 
 What it does, in order: copies the program files and the data (only
 the files that differ from what is already installed, so running it
@@ -33,6 +43,7 @@ to a drive as install.py by atlas_usb.py.  Standard library only.
 Author: Andrew Hopkins (with Claude)
 """
 
+import ast
 import hashlib
 import json
 import os
@@ -340,9 +351,11 @@ def ensure_pyqt(dest, yes=False):
     ok, _ = pyqt_works()
     if ok:
         say("PyQt6: already on this computer.")
+        STATE.update(pyqt="already on this computer", pyqt_libs="")
         return ""
     if os.path.isdir(libs) and pyqt_works(libs)[0] and not drive_newer_than(libs):
         say("PyQt6: the copy installed earlier is in place.")
+        STATE.update(pyqt="the copy installed earlier is in place", pyqt_libs=libs)
         return libs
     wheels, why = drive_wheels()
     if wheels:
@@ -352,6 +365,7 @@ def ensure_pyqt(dest, yes=False):
         if ok:
             with open(os.path.join(libs, "pyqt6_from.txt"), "w", encoding="utf-8") as f:
                 f.write(os.path.basename(wheels[0]))
+            STATE.update(pyqt=f"unpacked from the drive ({os.path.basename(wheels[0])})", pyqt_libs=libs)
             return libs
         say(f"  the drive's PyQt6 did not load here: {error}")
     else:
@@ -361,11 +375,13 @@ def ensure_pyqt(dest, yes=False):
         os.makedirs(libs, exist_ok=True)
         done = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "--target", libs, "PyQt6"])
         if done.returncode == 0 and pyqt_works(libs)[0]:
+            STATE.update(pyqt="fetched from the internet with pip", pyqt_libs=libs)
             return libs
         say("  pip could not install PyQt6.")
     say("PyQt6 is still missing.  The programs are installed but will not start until it is there:\n"
         "    Windows:  py -m pip install PyQt6\n"
         "    Ubuntu:   sudo apt install python3-pyqt6      (or  pip3 install PyQt6)")
+    STATE.update(pyqt="NOT FOUND: neither this computer's, the drive's nor pip's could be had")
     return None
 
 
@@ -384,6 +400,7 @@ def check_display(libs):
     if WINDOWS or not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return
     ok, error = pyqt_works(libs or None, show=True)
+    STATE["display"] = "opens" if ok else "DOES NOT OPEN: " + error[:150]
     if not ok:
         say("Note: Qt could not open a window on this screen (" + error[:120] + ").\n"
             "  On Ubuntu this is nearly always one missing system file; install it with\n"
@@ -512,6 +529,342 @@ def start_command(starter):
 
 
 # ---------------------------------------------------------------------------
+# The install report: what was installed, and whether it all works
+# ---------------------------------------------------------------------------
+# What the PyQt6 step found, for the report (filled by ensure_pyqt and
+# check_display as they run)
+STATE = {"pyqt": "", "pyqt_libs": None, "display": ""}
+
+REPORT_NAME = "install_report.txt"
+FILES_NAME = "installed_files.json"
+
+
+def record_files(dest, manifest, keys):
+    """
+    Keep, beside the install, the list of every file it installed with
+    its size and checksum (from the drive's manifest), so the install can
+    be checked later without the drive: installed_files.json.
+    """
+    path = os.path.join(dest, FILES_NAME)
+    try:
+        with open(path, encoding="utf-8") as f:
+            held = json.load(f)
+    except (OSError, ValueError):
+        held = {}
+    for key in keys:
+        app_dir = APPS[key]["folder"]
+        files = {}
+        groups = (("reader", "programs/word_atlas_reader/"), ("dataset", None)) if key == "reader" else \
+            (("atlas", "programs/word_atlas/"), ("atlas_data", "data/word_atlas/"))
+        for group, prefix in groups:
+            for rel, entry in files_of(manifest, group):
+                if prefix is None:          # a dataset goes into the Reader's datasets folder
+                    target = f"{app_dir}/datasets/{rel.split('/')[-1]}"
+                else:
+                    target = f"{app_dir}/{rel[len(prefix):]}"
+                files[target] = {"size": entry.get("size"), "sha256": entry.get("sha256", "")}
+        held[key] = files
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(held, f, indent=1)
+
+
+class InstallCheck:
+    """
+    Looks over an install and writes what it finds: every file there and
+    unchanged, the datasets readable, PyQt6 loading, a window opening,
+    the starters and menu entries in place, and any error a program
+    left when it last failed to start.  Each problem comes with what to
+    do about it.  The text goes to the screen and to install_report.txt
+    in the install folder: the file to send when asking for help.
+    """
+
+    def __init__(self, dest):
+        self.dest = dest
+        self.lines = []
+        self.problems = []          # (what is wrong, what to do)
+
+    def say(self, text=""):
+        self.lines.append(text)
+
+    def problem(self, what, fix):
+        self.problems.append((what, fix))
+
+    def run(self, copier=None, made=None, drive_manifest=None):
+        dest = self.dest
+        self.say("WORD ATLAS INSTALL REPORT")
+        self.say("=" * 25)
+        self.say(f"Written     {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        self.say(f"Folder      {dest}")
+        if drive_manifest:
+            self.say(f"From drive  written {drive_manifest.get('written', '?')} by {drive_manifest.get('written_by', '?')}"
+                     f" ({ROOT})")
+        self.say("")
+        self.computer()
+        try:
+            with open(os.path.join(dest, "installed.json"), encoding="utf-8") as f:
+                record = json.load(f)
+        except (OSError, ValueError):
+            record = {}
+        try:
+            with open(os.path.join(dest, FILES_NAME), encoding="utf-8") as f:
+                files = json.load(f)
+        except (OSError, ValueError):
+            files = {}
+        if not record:
+            self.say("No installed.json in this folder: nothing has been installed here, or the folder is "
+                     "not the install folder.")
+            self.problem("No install found in " + dest,
+                         "Give the folder the programs were installed into: install.py --check --dest FOLDER")
+        for key in ("reader", "atlas"):
+            if key in record:
+                self.program(key, record[key], files.get(key, {}))
+        if copier is not None:
+            self.copy_step(copier)
+        self.pyqt()
+        self.starters(made)
+        self.say("")
+        if self.problems:
+            self.say(f"PROBLEMS FOUND: {len(self.problems)}")
+            for i, (what, fix) in enumerate(self.problems, 1):
+                self.say(f"  {i}. {what}")
+                self.say(f"     What to do: {fix}")
+        else:
+            self.say("NO PROBLEMS FOUND: every file is in place and unchanged, and PyQt6 loads.")
+        self.say("")
+        self.say(f"This report is kept as {os.path.join(dest, REPORT_NAME)}.  When asking for help, send that "
+                 "file.  To check the install again later:  python3 install.py --check  on the drive, or "
+                 "python3 usb_install.py --check  in the installed word_atlas_reader folder.")
+        text = "\n".join(self.lines) + "\n"
+        try:
+            with open(os.path.join(dest, REPORT_NAME), "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            text += f"\n(The report could not be saved in the install folder: {e})\n"
+        return text
+
+    # --- the parts -----------------------------------------------------------------------
+    def computer(self):
+        self.say("This computer")
+        self.say(f"  System      {platform.platform()} ({platform.machine()})")
+        self.say(f"  Python      {platform.python_version()} at {sys.executable}")
+        try:
+            free = shutil.disk_usage(self.dest).free
+            self.say(f"  Free space  {free / 1e9:.1f} GB in the install folder's disk")
+            if free < 500e6:
+                self.problem(f"Only {free / 1e6:.0f} MB free on the install folder's disk",
+                             "Free some space, or install into a folder on another disk (--dest).")
+        except OSError:
+            pass
+        if sys.version_info[:2] < MIN_PYTHON:
+            self.problem(f"Python {platform.python_version()} is older than {MIN_PYTHON[0]}.{MIN_PYTHON[1]}",
+                         "Install a newer Python from python.org and run the installer again.")
+        self.say("")
+
+    def program(self, key, record, files):
+        app = APPS[key]
+        app_dir = os.path.join(self.dest, app["folder"])
+        self.say(f"{app['name']} {record.get('version', '?')}  (installed {record.get('installed', '?')})")
+        self.say(f"  Folder      {app_dir}")
+        if not os.path.isdir(app_dir):
+            self.problem(f"{app['name']}'s folder is not there: {app_dir}",
+                         "Run the installer again from the drive.")
+            self.say("")
+            return
+        if not os.path.exists(os.path.join(app_dir, app["script"])):
+            self.problem(f"{app['name']}'s program file {app['script']} is missing",
+                         "Run the installer again from the drive.")
+        if not files:
+            self.say("  Files       no list of installed files (installed before the report came in): "
+                     "only the program file was looked for")
+        else:
+            missing, changed, ok = [], [], 0
+            for rel, want in sorted(files.items()):
+                path = os.path.join(self.dest, *rel.split("/"))
+                if not os.path.exists(path):
+                    missing.append(rel)
+                elif os.path.getsize(path) != want.get("size") or \
+                        (want.get("sha256") and file_sha256(path) != want["sha256"]):
+                    changed.append(rel)
+                else:
+                    ok += 1
+            self.say(f"  Files       {len(files)} installed: {ok} in place and unchanged, {len(missing)} missing, "
+                     f"{len(changed)} different from the drive's")
+            for rel in missing[:10]:
+                self.say(f"      missing:   {rel}")
+            for rel in changed[:10]:
+                self.say(f"      different: {rel}")
+            if missing:
+                self.problem(f"{len(missing)} of {app['name']}'s files are missing (first: {missing[0]})",
+                             "Run the installer again from the drive; it copies only what is missing or wrong.")
+            if changed:
+                self.problem(f"{len(changed)} of {app['name']}'s files differ from the drive's (first: {changed[0]})",
+                             "If you did not change them yourself, run the installer again with --force to "
+                             "put back the drive's copies.")
+        if key == "reader":
+            self.datasets(app_dir)
+        error_log = os.path.join(self.dest, "start_error.txt")
+        if os.path.exists(error_log):
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(error_log)))
+            try:
+                with open(error_log, encoding="utf-8", errors="replace") as f:
+                    tail = f.read().strip().splitlines()[-3:]
+            except OSError:
+                tail = []
+            self.say(f"  Last start error ({when}, start_error.txt):")
+            for line in tail:
+                self.say("      " + line)
+            self.problem(f"A program failed to start on {when}: {tail[-1] if tail else 'see start_error.txt'}",
+                         "Read the lines above; a missing PyQt6 or a missing system library are the usual "
+                         "causes (see the PyQt6 part of this report).  Delete start_error.txt once it starts.")
+        self.say("")
+
+    def datasets(self, app_dir):
+        folder = os.path.join(app_dir, "datasets")
+        found = sorted(n for n in os.listdir(folder) if n.endswith(".wadb")) if os.path.isdir(folder) else []
+        if not found:
+            self.say("  Datasets    none in the datasets folder")
+            self.problem("The Reader has no dataset to open",
+                         "Install from a drive that carries one, or open a .wadb with File > Open.")
+            return
+        for name in found:
+            path = os.path.join(folder, name)
+            try:
+                with zipfile.ZipFile(path) as z:
+                    names = z.namelist()
+                    manifest = json.loads(z.read("manifest.json")) if "manifest.json" in names else {}
+                    bad = z.testzip()
+                if "results.db" not in names:
+                    raise ValueError("no results.db inside")
+                if bad:
+                    raise ValueError(f"damaged member {bad}")
+                tables = manifest.get("tables", {})
+                heat = "with heat strips" if tables.get("heat_windows") else "no heat strips (made before 0.10.101)"
+                runs = manifest.get("runs", [])
+                pages = sum(r.get("pages", 0) for r in runs)
+                self.say(f"  Dataset     {name}: {os.path.getsize(path) / 1e6:.1f} MB, reads back whole, "
+                         f"{pages} pages, {heat}")
+            except (OSError, ValueError, zipfile.BadZipFile) as e:
+                self.say(f"  Dataset     {name}: CANNOT BE READ ({e})")
+                self.problem(f"The dataset {name} cannot be read ({e})",
+                             "Run the installer again from the drive (with --force if the file is the same size).")
+        settings = os.path.join(os.path.expanduser("~"), ".word_atlas_reader", "settings.json")
+        try:
+            with open(settings, encoding="utf-8") as f:
+                last = json.load(f).get("last_file", "")
+        except (OSError, ValueError):
+            last = ""
+        if last:
+            state = "there" if os.path.exists(last) else "NOT THERE"
+            self.say(f"  Opens first {last} ({state})")
+            if not os.path.exists(last):
+                self.problem("The Reader's last dataset is no longer there: " + last,
+                             "Open a dataset with File > Open; the Reader remembers it.")
+
+    def copy_step(self, copier):
+        self.say("This run of the installer")
+        self.say(f"  Copied      {copier.copied} file(s) ({mb(copier.copied_bytes)}); {copier.same} already up to date")
+        if copier.kept_newer:
+            self.say(f"  Left alone  {len(copier.kept_newer)} file(s) newer on this computer than on the drive")
+            for path in copier.kept_newer[:6]:
+                self.say("      " + path)
+        if copier.failed:
+            for line in copier.failed[:6]:
+                self.say("      could not write: " + line)
+            self.problem(f"{len(copier.failed)} file(s) could not be written",
+                         "Close Word Atlas and the Reader if they are open (Windows will not replace a file in "
+                         "use), and run the installer again.")
+        self.say("")
+
+    def libs_of_starters(self):
+        """The PyQt6 folder the starter files put on the path ('' for the computer's own), read from them."""
+        for app in APPS.values():
+            path = os.path.join(self.dest, f"start_{app['folder']}.pyw")
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    m = re.search(r"^LIBS = (.+?)\s+#", f.read(), re.M)
+                if m:
+                    try:
+                        return ast.literal_eval(m.group(1))       # a quoted path written by write_starter
+                    except Exception:
+                        return ""
+        return ""
+
+    def pyqt(self):
+        self.say("PyQt6 (what the programs' windows are made with)")
+        if STATE["pyqt"]:
+            self.say(f"  This run    {STATE['pyqt']}")
+        libs = STATE["pyqt_libs"] if STATE["pyqt_libs"] is not None else self.libs_of_starters()
+        ok, error = pyqt_works(libs or None)
+        where = f"the copy in {libs}" if libs else "this computer's own"
+        self.say(f"  Loads       {'yes' if ok else 'NO'}, {where}" + ("" if ok else f": {error[:150]}"))
+        if not ok:
+            self.problem("PyQt6 does not load (" + error[:120] + ")",
+                         "Run the installer again (it unpacks the drive's PyQt6), or install it yourself: "
+                         "Windows  py -m pip install PyQt6;  Ubuntu  sudo apt install python3-pyqt6.")
+        elif not WINDOWS and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            shown, error = pyqt_works(libs or None, show=True)
+            self.say(f"  A window    {'opens' if shown else 'DOES NOT OPEN: ' + error[:150]}")
+            if not shown:
+                self.problem("Qt cannot open a window on this screen (" + error[:100] + ")",
+                             "On Ubuntu install the missing system file:  sudo apt install libxcb-cursor0")
+        elif STATE["display"]:
+            self.say(f"  A window    {STATE['display']}")
+        self.say("")
+
+    def starters(self, made):
+        self.say("Starting the programs")
+        try:
+            with open(os.path.join(self.dest, "installed.json"), encoding="utf-8") as f:
+                keys = [k for k in json.load(f) if k in APPS]
+        except (OSError, ValueError):
+            keys = []
+        for key in keys:
+            app = APPS[key]
+            starter = os.path.join(self.dest, f"start_{app['folder']}.pyw")
+            if os.path.exists(starter):
+                self.say(f"  {app['name']}: {start_command(starter)}")
+            else:
+                self.say(f"  {app['name']}: NO STARTER FILE ({starter})")
+                self.problem(f"{app['name']} has no starter file", "Run the installer again from the drive.")
+            for place in self.shortcut_paths(key):
+                self.say(f"      {'menu entry' if place.endswith('.desktop') else 'shortcut'}: {place} "
+                         f"({'there' if os.path.exists(place) else 'not there'})")
+        if made is not None and not made:
+            self.say("  No menu entries or shortcuts were made this time (--no-shortcuts, or the system refused).")
+
+    @staticmethod
+    def shortcut_paths(key):
+        """Where the menu entry or shortcuts for a program are made."""
+        app = APPS[key]
+        if WINDOWS:
+            home = os.path.expanduser("~")
+            appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
+            return [os.path.join(home, "Desktop", app["name"] + ".lnk"),
+                    os.path.join(appdata, "Microsoft", "Windows", "Start Menu", "Programs", app["name"] + ".lnk")]
+        return [os.path.join(os.path.expanduser("~"), ".local", "share", "applications",
+                             app["folder"].replace("_", "-") + ".desktop")]
+
+
+def check_install(dest, copier=None, made=None, drive_manifest=None):
+    """Check the install in dest, print the report and save it; returns the number of problems."""
+    check = InstallCheck(dest)
+    say(check.run(copier, made, drive_manifest))
+    return len(check.problems)
+
+
+def default_install_dir():
+    """
+    The install folder to check when none is given: the folder above this
+    file when this is the installed copy (usb_install.py inside
+    word_atlas_reader or word_atlas), else ~/WordAtlas.
+    """
+    parent = os.path.dirname(ROOT)
+    if os.path.exists(os.path.join(parent, "installed.json")):
+        return parent
+    return os.path.join(os.path.expanduser("~"), "WordAtlas")
+
+
+# ---------------------------------------------------------------------------
 # The installer
 # ---------------------------------------------------------------------------
 
@@ -530,6 +883,13 @@ def main(argv):
         say(f"This computer's Python is {platform.python_version()}; Word Atlas needs "
             f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]} or later.\nInstall a newer Python (python.org) and run the installer again.")
         return 1
+    if "--check" in flags:
+        # Check an install and write its report; nothing is copied, and
+        # the drive is not needed (the install keeps its own file list)
+        dest = os.path.abspath(os.path.expanduser(values.get("--dest") or default_install_dir()))
+        say(f"Checking the install in {dest}")
+        say()
+        return 1 if check_install(dest) else 0
     manifest = load_manifest()
     for line in describe(manifest):
         say(line)
@@ -627,6 +987,10 @@ def main(argv):
                        "from_drive_written": manifest.get("written", "")}
     with open(record_path, "w", encoding="utf-8") as f:
         json.dump(record, f, indent=2)
+    # The list of installed files, then the install report (0.10.102)
+    record_files(dest, manifest, keys)
+    say()
+    problems = check_install(dest, copier, None if "--no-shortcuts" in flags else made, manifest)
 
     say()
     say(("Done." if libs is not None else "Done, except for PyQt6 (see above).") if not copier.failed else
@@ -639,6 +1003,8 @@ def main(argv):
         first = APPS[keys[0]]["name"]
         if ask(f"\nStart {first} now? [Y/n] ", "y").lower().startswith("y"):
             subprocess.Popen([windowless_python(), starters[keys[0]]], cwd=dest)
+    if problems and not copier.failed and libs is not None:
+        say("  The install report above found problems: see PROBLEMS FOUND.")
     return 1 if copier.failed else (0 if libs is not None else 2)
 
 

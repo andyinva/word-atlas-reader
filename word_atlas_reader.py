@@ -53,7 +53,7 @@ import reader_questions
 from reader_tools import ToolsTab
 from reader_heat import HeatTab
 
-VERSION = "0.3.12"
+VERSION = "0.3.13"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something

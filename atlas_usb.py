@@ -64,6 +64,22 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(HERE)
 
+
+def source_of_build():
+    """
+    For a built copy (PyInstaller) run from the folder it was built in,
+    word_atlas_reader/dist/WordAtlasReader, the source folder two
+    levels up, where the program files a drive needs are; None for a
+    copy run from its source, or a built copy that has been moved.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    dist = os.path.dirname(exe_dir)
+    if os.path.basename(dist).lower() != "dist":
+        return None
+    return os.path.dirname(dist)
+
 FORMAT = "Word Atlas USB drive"
 FORMAT_VERSION = 1
 DRIVE_FOLDER = "WordAtlas"            # the one folder made on the drive
@@ -191,7 +207,12 @@ def home_app():
 
 def find_atlas_dir():
     """The Word Atlas folder: this one, or word_atlas beside the Reader; None when it is not there."""
-    for folder in (HERE, os.path.join(PARENT_DIR, "word_atlas")):
+    candidates = [HERE, os.path.join(PARENT_DIR, "word_atlas")]
+    built = source_of_build()
+    if built:
+        # A built Reader: Word Atlas beside the Reader's source folder
+        candidates.append(os.path.join(os.path.dirname(built), "word_atlas"))
+    for folder in candidates:
         if os.path.exists(os.path.join(folder, "word_atlas.py")) and os.path.exists(os.path.join(folder, "atlas_pages.py")):
             return folder
     return None
@@ -202,6 +223,11 @@ def find_reader_dir():
     candidates = [os.path.join(PARENT_DIR, "word_atlas_reader")]
     if home_app() == "reader":
         candidates.insert(0, HERE)
+    # A built copy has no program files beside it: its source folder,
+    # two levels up from dist/WordAtlasReader, has them (0.10.102)
+    built = source_of_build()
+    if built:
+        candidates.insert(0, built)
     for folder in candidates:
         if os.path.exists(os.path.join(folder, "word_atlas_reader.py")) and os.path.exists(os.path.join(folder, "reader_data.py")):
             return folder
@@ -691,7 +717,12 @@ def gather(options, atlas_dir=None, reader_dir=None, wheels=()):
         if os.path.isdir(built):
             system = "windows" if sys.platform.startswith("win") else "linux"
             groups.add("build_" + system)
-            for root, _, files in os.walk(built):
+            for root, dirs, files in os.walk(built):
+                # The datasets a built copy kept of what it opened are
+                # not part of the build: the drive carries the dataset
+                # once, under data/reader (0.10.102)
+                if root == built:
+                    dirs[:] = [d for d in dirs if d != "datasets"]
                 for name in files:
                     path = os.path.join(root, name)
                     rel = os.path.relpath(path, built)

@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.12. Andrew Hopkins, with Claude.
+Version 0.3.13. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -236,8 +236,53 @@ back against the checksum written with it. The same drive can be
 made or updated from Word Atlas (its Workbench tab, Install menu),
 and `python3 atlas_usb.py build DRIVE` does it from a terminal.
 
-The Windows side of the installer was written on Linux and has not
-yet been run on a Windows machine.
+The installer was tried on Windows 11 on 2026-10-20 with the built
+Reader: it installed and ran without trouble.
+
+**The install report.** At the end of an install the installer checks
+its own work and writes `install_report.txt` in the install folder:
+the computer and Python, every program file present and matching what
+was copied (`installed_files.json` keeps each file's size and
+checksum), each dataset opening whole with the tables the Reader
+reads, PyQt6 loading (and a window opening, on Linux), the starters
+and the menu or Desktop entries. Each problem is followed by a "What
+to do" line; the last line says NO PROBLEMS FOUND or how many there
+were. It is the file to ask for when someone has trouble with an
+install. To check again later, without the drive: the Tools tab's
+**Check the install**, or `python3 usb_install.py --check` in the
+installed Reader's folder.
+
+## Updates from GitHub
+
+An installed Reader brings itself up to date over the internet. The
+Tools tab's "Updates from GitHub" group has:
+
+- **Check for a newer Reader.** Reads the version of
+  `word_atlas_reader.py` on the main branch of
+  andyinva/word-atlas-reader. When it is newer, you choose: replace
+  this copy's program files (the old ones go to a dated folder under
+  the Reader's `backups` folder, so the update can be undone; the
+  datasets, settings and guest key are never touched), or put the
+  newer Reader into another folder. Start the Reader again afterwards.
+  A built copy (no Python) cannot replace its own program; it can
+  download the newer source into a folder, and is otherwise brought
+  up to date by a new build or an updated drive.
+- **Check for a newer dataset.** Looks at the repository's releases
+  for the newest `.wadb`, downloads it into the Reader's `datasets`
+  folder and opens it. Tick the box to remove the older datasets the
+  Reader keeps.
+
+**Publishing.** Push the Reader's code as usual; a new `VERSION` in
+`word_atlas_reader.py` is what tells installed copies an update is
+there. A dataset is too big for git, so it goes on a release: on
+GitHub open the repository, Releases, "Draft a new release", give it
+a tag such as `dataset-2026-10-20`, attach the `.wadb`, and Publish.
+With the `gh` tool:
+
+    gh release create dataset-2026-10-20 datasets/word_atlas_0.10.101_2026-10-20.wadb --repo andyinva/word-atlas-reader --title "Dataset 2026-10-20" --notes "Word Atlas 0.10.101"
+
+A copy can follow another repository: `"update_repo": "owner/name"`
+in its `settings.json`.
 
 ## Credits and licences
 
@@ -315,6 +360,7 @@ be thought of as a small prepaid card, never as a secret.
 | `reader_tools.py` | the Tools tab: dataset details, a query of your own, this copy's tests and guest key, the zip |
 | `reader_credits.py` | the credits and licences page: the sources, and which of them a dataset draws on |
 | `reader_heat.py` | the Heat tab: the strip chart, the spots, the King James text and the named passages |
+| `reader_update.py` | updates from GitHub: a newer Reader from the main branch, a newer dataset from the releases |
 | `atlas_usb.py` | the USB drive: finds drives, makes or updates the `WordAtlas` folder on one, fetches PyQt6 for it (the same file as the main program's) |
 | `atlas_usb_dialog.py` | the USB drive's window (the same file as the main program's) |
 | `usb_install.py` | the installer, copied to a drive as `install.py` (the same file as the main program's) |
@@ -383,6 +429,15 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.13: updates from GitHub (reader_update.py; Tools tab, "Updates
+from GitHub"): a newer Reader replaces this copy's program files with
+a backup of the old ones, or goes into another folder; a newer dataset
+comes from the repository's releases. The installer writes an install
+report and keeps a checksum of every file it copied; Check the install
+on the Tools tab and `usb_install.py --check` check again without the
+drive. A built copy making a USB drive finds its source folder, and
+its own datasets folder stays off the drive.
 
 0.3.12: the Heat tab (reader_heat.py): a book's heat strips drawn
 from the heat rows of a dataset made by Word Atlas 0.10.101 or later,

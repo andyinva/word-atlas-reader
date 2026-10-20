@@ -756,6 +756,227 @@ def _():
         w.close()
 
 
+# --- updates from GitHub, the install report, a built copy's drive (0.3.13) -----------------------
+def fake_reader_zip(path, version):
+    """A zip shaped like GitHub's branch zip of the Reader: one top folder, program files, a subfolder."""
+    import zipfile
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("word-atlas-reader-main/word_atlas_reader.py", f'VERSION = "{version}"\n')
+        z.writestr("word-atlas-reader-main/reader_data.py", "# data\n")
+        z.writestr("word-atlas-reader-main/README.md", "# readme\n")
+        z.writestr("word-atlas-reader-main/guest_key.dat", "never")
+        z.writestr("word-atlas-reader-main/sample/x.wadb", "not a program file")
+        z.writestr("word-atlas-reader-main/.gitignore", "datasets/\n")
+
+
+@test("a newer Reader is found on GitHub and put in place, the old files kept and the datasets left alone")
+def _():
+    import json
+    import reader_update
+    calls = []
+
+    def fake_fetch(url, timeout=30):
+        calls.append(url)
+        return b'VERSION = "9.9.9"\n'
+    real_fetch = reader_update.fetch
+    reader_update.fetch = fake_fetch
+    try:
+        latest = reader_update.latest_program({"update_repo": "someone/elsewhere"})
+    finally:
+        reader_update.fetch = real_fetch
+    assert latest["version"] == "9.9.9" and "someone/elsewhere" in calls[0], (latest, calls)
+    assert reader_update.is_newer("0.3.13", "0.3.12") and not reader_update.is_newer("0.3.9", "0.3.12")
+    with tempfile.TemporaryDirectory() as tmp:
+        # An installed copy: the install folder, the Reader's folder, a dataset, a guest key
+        dest = os.path.join(tmp, "WordAtlas")
+        app = os.path.join(dest, "word_atlas_reader")
+        os.makedirs(os.path.join(app, "datasets"))
+        for name, text in (("word_atlas_reader.py", 'VERSION = "0.3.12"\n'), ("reader_data.py", "# old\n"),
+                           ("guest_key.dat", "mine"), ("datasets/kept.wadb", "data")):
+            with open(os.path.join(app, *name.split("/")), "w") as f:
+                f.write(text)
+        with open(os.path.join(dest, "installed.json"), "w") as f:
+            json.dump({"reader": {"version": "0.3.12"}}, f)
+        with open(os.path.join(dest, "installed_files.json"), "w") as f:
+            json.dump({"reader": {"word_atlas_reader/reader_data.py": {"size": 6, "sha256": "x"}}}, f)
+        zip_path = os.path.join(tmp, "main.zip")
+        fake_reader_zip(zip_path, "9.9.9")
+        written, backup = reader_update.install_program(zip_path, app, os.path.join(tmp, "backups"), "0.3.12")
+        assert sorted(written) == ["README.md", "reader_data.py", "word_atlas_reader.py"], written
+        assert open(os.path.join(app, "word_atlas_reader.py")).read().startswith('VERSION = "9.9.9"')
+        assert open(os.path.join(app, "guest_key.dat")).read() == "mine", "the guest key was replaced"
+        assert open(os.path.join(app, "datasets", "kept.wadb")).read() == "data"
+        assert not os.path.exists(os.path.join(app, "sample")), "a subfolder of the zip was written"
+        assert open(os.path.join(backup, "reader_data.py")).read() == "# old\n", "the old file was not kept"
+        # The install's own records follow the update, so its report does not call the new files damaged
+        record = json.load(open(os.path.join(dest, "installed.json")))
+        files = json.load(open(os.path.join(dest, "installed_files.json")))["reader"]
+        assert record["reader"]["version"] == "9.9.9", record
+        assert files["word_atlas_reader/reader_data.py"]["sha256"] == reader_update.file_sha256(
+            os.path.join(app, "reader_data.py"))
+        # A zip without the Reader in it is refused, and nothing is written
+        bad = os.path.join(tmp, "bad.zip")
+        import zipfile
+        with zipfile.ZipFile(bad, "w") as z:
+            z.writestr("other-main/README.md", "x")
+        try:
+            reader_update.install_program(bad, app)
+            raise AssertionError("a zip without the Reader was installed")
+        except reader_update.UpdateError:
+            pass
+
+
+@test("the newest dataset of the GitHub releases is found, downloaded and the older ones listed")
+def _():
+    import json
+    import zipfile
+    import reader_update
+    releases = [
+        {"draft": False, "tag_name": "dataset-old", "published_at": "2026-10-01T00:00:00Z",
+         "assets": [{"name": "word_atlas_0.10.87.wadb", "size": 10, "browser_download_url": "u1",
+                     "updated_at": "2026-10-01T00:00:00Z"}]},
+        {"draft": False, "tag_name": "dataset-new", "name": "Dataset 2026-10-20", "published_at": "2026-10-20T00:00:00Z",
+         "assets": [{"name": "word_atlas_0.10.101.wadb", "size": 0, "browser_download_url": "u2",
+                     "updated_at": "2026-10-20T00:00:00Z"}, {"name": "notes.txt", "browser_download_url": "u3"}]},
+        {"draft": True, "tag_name": "draft", "assets": [{"name": "word_atlas_9.wadb", "browser_download_url": "u4",
+                                                          "updated_at": "2099-01-01T00:00:00Z"}]},
+    ]
+    real_fetch, real_download = reader_update.fetch, reader_update.download
+    reader_update.fetch = lambda url, timeout=30: json.dumps(releases).encode()
+    got = []
+
+    def fake_download(url, path, progress=None, cancelled=None):
+        got.append(url)
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("results.db", "x")
+        if progress:
+            progress(1, 1)
+    reader_update.download = fake_download
+    try:
+        asset = reader_update.latest_dataset()
+        assert asset["name"] == "word_atlas_0.10.101.wadb" and asset["release"] == "Dataset 2026-10-20", asset
+        reader_update.fetch = lambda url, timeout=30: b"[]"
+        assert reader_update.latest_dataset() is None
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "word_atlas_0.10.87.wadb"), "wb") as f:
+                f.write(b"old")
+            assert not reader_update.have_dataset(asset, tmp)
+            path = reader_update.fetch_dataset(asset, tmp)
+            assert got == ["u2"] and reader_update.have_dataset(asset, tmp)
+            assert reader_update.older_datasets(tmp, path) == [os.path.join(tmp, "word_atlas_0.10.87.wadb")]
+    finally:
+        reader_update.fetch, reader_update.download = real_fetch, real_download
+
+
+@test("a refused zip address falls back to the files one by one, in a zip of the same shape")
+def _():
+    import json
+    import reader_update
+    real_fetch, real_download = reader_update.fetch, reader_update.download
+    tried = []
+
+    def refuse(url, path, progress=None, cancelled=None):
+        # Both zip addresses refused, as a firewall might
+        tried.append(url)
+        raise reader_update.UpdateError("the download failed (Forbidden)")
+
+    listing = [{"name": n, "type": "file"} for n in ("word_atlas_reader.py", "reader_data.py", "README.md",
+                                                     "settings.json", ".gitignore")] + [{"name": "sample", "type": "dir"}]
+
+    def fake_fetch(url, timeout=30):
+        if "contents" in url:
+            return json.dumps(listing).encode()
+        return f'VERSION = "9.9.9"\n# {url.rsplit("/", 1)[-1]}\n'.encode()
+    reader_update.download, reader_update.fetch = refuse, fake_fetch
+    try:
+        latest = {"version": "9.9.9", "zip_url": "https://codeload.example/zip", "repo": "someone/reader"}
+        notes = []
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = os.path.join(tmp, "r.zip")
+            way = reader_update.download_program(latest, zip_path, notes.append)
+            assert "file by file" in way and len(tried) == 2 and len(notes) == 2, (way, tried, notes)
+            members = reader_update.program_members(zip_path)
+            assert sorted(members) == ["README.md", "reader_data.py", "word_atlas_reader.py"], members
+            written, _ = reader_update.install_program(zip_path, os.path.join(tmp, "app"))
+            assert len(written) == 3
+        # Nothing reachable at all: one error naming each way
+        reader_update.fetch = lambda url, timeout=30: (_ for _ in ()).throw(reader_update.UpdateError("offline"))
+        try:
+            reader_update.download_program(latest, os.path.join(tempfile.gettempdir(), "never.zip"))
+            raise AssertionError("no error when nothing could be reached")
+        except reader_update.UpdateError as e:
+            assert "file by file: offline" in str(e), e
+    finally:
+        reader_update.fetch, reader_update.download = real_fetch, real_download
+
+
+@test("the installer writes an install report, and --check finds a missing and a changed file")
+def _():
+    import subprocess
+    import atlas_usb
+    with tempfile.TemporaryDirectory() as tmp:
+        drive, dest, home = (os.path.join(tmp, d) for d in ("drive", "installed", "home"))
+        for d in (drive, home):
+            os.makedirs(d)
+        options = atlas_usb.default_options(None, HERE)
+        options.update({"atlas": False, "dataset": SAMPLE, "wheels": False, "sync": False})
+        atlas_usb.build(drive, options, None, HERE, log=lambda *a: None)
+        root = atlas_usb.drive_root(drive)
+        env = dict(os.environ, HOME=home, USERPROFILE=home, QT_QPA_PLATFORM="offscreen")
+        env.pop("WORD_ATLAS_READER_HOME", None)
+        out = subprocess.run([sys.executable, os.path.join(root, "install.py"), "--app", "reader", "--dest", dest,
+                              "--yes", "--no-shortcuts", "--no-pyqt"], capture_output=True, text=True, env=env,
+                             timeout=300)
+        assert out.returncode == 0, out.stdout[-600:]
+        report = open(os.path.join(dest, "install_report.txt"), encoding="utf-8").read()
+        assert "NO PROBLEMS FOUND" in report and "reads back whole" in report and "Loads       yes" in report, report
+        app = os.path.join(dest, "word_atlas_reader")
+        os.remove(os.path.join(app, "README.md"))
+        with open(os.path.join(app, "reader_data.py"), "a") as f:
+            f.write("# changed here\n")
+        # From the installed copy, without the drive
+        out = subprocess.run([sys.executable, os.path.join(app, "usb_install.py"), "--check"], capture_output=True,
+                             text=True, env=env, timeout=300)
+        assert out.returncode == 1, out.stdout[-600:]
+        assert "missing:   word_atlas_reader/README.md" in out.stdout and \
+            "different: word_atlas_reader/reader_data.py" in out.stdout and "PROBLEMS FOUND: 2" in out.stdout, \
+            out.stdout[-900:]
+        assert "PROBLEMS FOUND: 2" in open(os.path.join(dest, "install_report.txt"), encoding="utf-8").read()
+
+
+@test("a built copy finds its source folder for the drive, and its own datasets stay off the drive")
+def _():
+    import atlas_usb
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "word_atlas_reader")
+        build = os.path.join(src, "dist", "WordAtlasReader")
+        os.makedirs(os.path.join(build, "datasets"))
+        os.makedirs(os.path.join(build, "_internal"))
+        for name in ("word_atlas_reader.py", "reader_data.py"):
+            with open(os.path.join(src, name), "w") as f:
+                f.write('VERSION = "0.3.13"\n')
+        for rel in ("WordAtlasReader", "_internal/lib.so", "datasets/big.wadb"):
+            with open(os.path.join(build, *rel.split("/")), "w") as f:
+                f.write("x")
+        frozen, executable = getattr(sys, "frozen", None), sys.executable
+        sys.frozen, sys.executable = True, os.path.join(build, "WordAtlasReader")
+        try:
+            assert atlas_usb.source_of_build() == src, atlas_usb.source_of_build()
+            assert atlas_usb.find_reader_dir() == src
+        finally:
+            sys.executable = executable
+            if frozen is None:
+                del sys.frozen
+            else:
+                sys.frozen = frozen
+        assert atlas_usb.source_of_build() is None
+        items, groups = atlas_usb.gather({"reader": True}, None, src)
+        rels = sorted(i.rel for i in items)
+        assert "builds/linux/WordAtlasReader/_internal/lib.so" in rels or \
+            "builds/windows/WordAtlasReader/_internal/lib.so" in rels, rels
+        assert not any("datasets" in r for r in rels), rels
+
+
 @test("housekeeping: no em dash in any .py or .md, every .py compiles")
 def _():
     for path in glob.glob("*.py") + glob.glob("*.md"):

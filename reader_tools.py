@@ -29,15 +29,18 @@ Author: Andrew Hopkins (with Claude)
 import os
 import sqlite3
 import sys
+import threading
 import time
 import zipfile
 
-from PyQt6.QtCore import QProcess, QProcessEnvironment, QT_VERSION_STR, PYQT_VERSION_STR
+from PyQt6.QtCore import QProcess, QProcessEnvironment, QT_VERSION_STR, PYQT_VERSION_STR, Qt, QTimer
 from PyQt6.QtGui import QFont, QTextCursor
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-                             QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox,
+                             QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
+                             QVBoxLayout, QWidget)
 
 import reader_guest
+import reader_update
 from reader_claude import run_sql
 from reader_data import (HOME_DIR, atlas_reports_dir, forget_dataset, kept_datasets, library_dir,
                          newest_from_atlas)
@@ -47,7 +50,7 @@ FROZEN = bool(getattr(sys, "frozen", False))      # a built copy (PyInstaller): 
 
 # The files a copy of the Reader is made of; "Check this copy" says which are here
 EXPECTED_FILES = ["word_atlas_reader.py", "reader_data.py", "reader_claude.py", "reader_guest.py", "reader_help.py",
-                  "reader_questions.py", "reader_tools.py", "reader_credits.py", "reader_heat.py", "atlas_report.py", "atlas_results.py", "atlas_listed.py",
+                  "reader_questions.py", "reader_tools.py", "reader_credits.py", "reader_heat.py", "reader_update.py", "atlas_report.py", "atlas_results.py", "atlas_listed.py",
                   "atlas_usb.py", "atlas_usb_dialog.py", "usb_install.py"]
 
 
@@ -194,6 +197,21 @@ class ToolsTab(QWidget):
         self.tests_button.setVisible(not FROZEN and os.path.exists(os.path.join(HERE, "test_reader.py")))
         self._button(g, "Guest key...", self.guest_key, "tools_guest",
                      "See the guest key this copy carries, or write one for copies to be given away")
+        left.addWidget(group)
+
+        # --- updates (0.3.13) ---
+        group = QGroupBox("Updates from GitHub")
+        g = QVBoxLayout(group)
+        self._button(g, "Check for a newer Reader", self.check_program_update, "tools_update_program",
+                     "Ask GitHub for the newest Reader; bring it in, replacing this copy (the old files kept in a "
+                     "backup) or into another folder")
+        self._button(g, "Check for a newer dataset", self.check_dataset_update, "tools_update_dataset",
+                     "Ask GitHub's releases for the newest dataset; download and open it, and remove the older "
+                     "ones if you like")
+        self.install_button = self._button(g, "Check the install", self.check_install, "tools_install",
+                                           "Check the install this copy belongs to, file by file, and show the "
+                                           "install report (the file to send when asking for help)")
+        self.install_button.setVisible(self.install_folder() is not None)
         left.addWidget(group)
 
         # --- passing it on ---
@@ -402,6 +420,13 @@ class ToolsTab(QWidget):
             self.say(f"Guest key        ended on {until} (or the file is damaged)")
         else:
             self.say("Guest key        none in this copy")
+        dest = self.install_folder()
+        if dest:
+            report = os.path.join(dest, "install_report.txt")
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(report))) \
+                if os.path.exists(report) else "none written yet"
+            self.say(f"Installed into   {dest}  (install report: {report}, {when}; 'Check the install' "
+                     "checks it again)")
         own = bool(self.window.settings.get("api_key"))
         self.say("Your own key     " + ("entered (File > Claude settings)" if own else "not entered"))
         data = self.window.data
@@ -539,8 +564,215 @@ class ToolsTab(QWidget):
             return
         UsbDialog(self, dataset=self.open_wadb()).exec()
 
+    # --- updates from GitHub (0.3.13) -----------------------------------------------------------
+    def check_program_update(self):
+        """See whether GitHub has a newer Reader, and offer to bring it in."""
+        import word_atlas_reader
+        current = word_atlas_reader.VERSION
+        self.heading("Check for a newer Reader")
+        self.say(f"This copy: Word Atlas Reader {current}.  Asking {reader_update.repo_of(self.window.settings)} "
+                 "on GitHub ...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            latest = reader_update.latest_program(self.window.settings)
+        except reader_update.UpdateError as e:
+            self.say(f"Could not check: {e}")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.say(f"Newest on GitHub: {latest['version']}  ({latest['page']})")
+        if not reader_update.is_newer(latest["version"], current):
+            self.say("This copy is up to date.")
+            return
+        if FROZEN:
+            # A built copy carries its program inside the build; it is
+            # brought up to date by a new build or a new drive
+            self.say("This is a built copy (no Python), whose program files are inside the build and cannot be "
+                     "replaced one by one.  A newer built copy comes on an updated USB drive, or is made from the "
+                     "source with PyInstaller.  The source can be downloaded into a folder of your choosing:")
+        box = QMessageBox(self)
+        box.setWindowTitle("A newer Reader")
+        box.setText(f"Word Atlas Reader {latest['version']} is on GitHub; this copy is {current}.")
+        if FROZEN:
+            box.setInformativeText("This built copy cannot replace itself.  Download the newer source into a "
+                                   "folder of your choosing?")
+            replace = None
+        else:
+            box.setInformativeText("Replace this copy's program files (the old ones are kept in a backup folder, "
+                                   "and your datasets, settings and key are not touched), or put the newer "
+                                   "Reader into another folder?")
+            replace = box.addButton("Replace this copy", QMessageBox.ButtonRole.AcceptRole)
+        elsewhere = box.addButton("Into another folder...", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        chosen = box.clickedButton()
+        if chosen is replace and replace is not None:
+            target = HERE
+        elif chosen is elsewhere:
+            target = QFileDialog.getExistingDirectory(self, "Put the newer Reader into which folder?",
+                                                      os.path.expanduser("~"))
+            if not target:
+                self.say("Nothing changed.")
+                return
+        else:
+            self.say("Nothing changed.")
+            return
+        zip_path = reader_update.temp_zip_path()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.say(f"Downloading {latest['zip_url']} ...")
+            way = reader_update.download_program(latest, zip_path, self.say)
+            self.say(f"Downloaded ({way}).")
+            backup_root = os.path.join(HOME_DIR, "backups") if target == HERE else None
+            written, backup = reader_update.install_program(zip_path, target, backup_root, current)
+        except (reader_update.UpdateError, OSError, zipfile.BadZipFile) as e:
+            self.say(f"The update did not go in: {e}")
+            QApplication.restoreOverrideCursor()
+            return
+        finally:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        QApplication.restoreOverrideCursor()
+        self.say(f"{len(written)} program file(s) written into {target}.")
+        if backup:
+            self.say(f"The files they replaced are kept in {backup} (copy them back to undo the update).")
+        if target == HERE:
+            self.say(f"Close the Reader and start it again to use {latest['version']}.")
+            QMessageBox.information(self, "A newer Reader", f"Word Atlas Reader {latest['version']} is in place.  "
+                                    "Close the Reader and start it again to use it.")
+        else:
+            self.say(f"Start it with:  python3 {os.path.join(target, 'word_atlas_reader.py')}")
+
+    def check_dataset_update(self):
+        """See whether a release on GitHub carries a dataset newer than those the Reader has, and fetch it."""
+        self.heading("Check for a newer dataset")
+        repo = reader_update.repo_of(self.window.settings)
+        self.say(f"Asking the releases of {repo} on GitHub ...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            asset = reader_update.latest_dataset(self.window.settings)
+        except reader_update.UpdateError as e:
+            self.say(f"Could not check: {e}")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        if asset is None:
+            self.say("No release there carries a dataset (.wadb) yet.")
+            return
+        folder = library_dir()
+        self.say(f"Newest there: {asset['name']} ({asset['size'] / 1e6:.1f} MB), release '{asset['release']}', "
+                 f"{asset['published'][:10]}")
+        if reader_update.have_dataset(asset, folder):
+            self.say("The Reader has it already" + (", and it is open." if self.window.data is not None and
+                                                    os.path.basename(self.window.data.source_path) == asset["name"]
+                                                    else f": {os.path.join(folder, asset['name'])}"))
+            return
+        older = [p for p, _ in kept_datasets()]
+        box = QMessageBox(self)
+        box.setWindowTitle("A newer dataset")
+        box.setText(f"{asset['name']} ({asset['size'] / 1e6:.0f} MB) is on GitHub.  Download it and open it?")
+        remove = None
+        if older:
+            remove = QCheckBox(f"Then remove the older dataset{'s' if len(older) > 1 else ''} the Reader keeps "
+                               f"({', '.join(os.path.basename(p) for p in older)})")
+            box.setCheckBox(remove)
+        go = box.addButton("Download", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is not go:
+            self.say("Nothing downloaded.")
+            return
+        self.start_download(asset, folder, bool(remove and remove.isChecked()))
+
+    def start_download(self, asset, folder, remove_older):
+        """Download on a thread of its own, saying how far it has got, then open the dataset."""
+        if getattr(self, "download_thread", None) is not None and self.download_thread.is_alive():
+            QMessageBox.information(self, "Download", "A download is already running.")
+            return
+        self.download_state = {"done": 0, "total": asset.get("size", 0), "path": None, "error": None,
+                               "finished": False, "shown": -1, "stop": False}
+        state = self.download_state
+
+        def work():
+            try:
+                state["path"] = reader_update.fetch_dataset(
+                    asset, folder, lambda d, t: state.update(done=d, total=t or state["total"]),
+                    lambda: state["stop"])
+            except reader_update.UpdateError as e:
+                state["error"] = str(e)
+            state["finished"] = True
+
+        self.say(f"Downloading {asset['name']} into {folder} ...")
+        self.download_remove = remove_older
+        self.download_thread = threading.Thread(target=work, daemon=True)
+        self.download_thread.start()
+        self.download_timer = QTimer(self)
+        self.download_timer.timeout.connect(self._download_tick)
+        self.download_timer.start(400)
+
+    def _download_tick(self):
+        state = self.download_state
+        if state["total"]:
+            tenth = int(10 * state["done"] / state["total"])
+            if tenth != state["shown"]:
+                state["shown"] = tenth
+                self.say(f"    {state['done'] / 1e6:.0f} of {state['total'] / 1e6:.0f} MB")
+        if not state["finished"]:
+            return
+        self.download_timer.stop()
+        if state["error"]:
+            self.say(f"The download did not finish: {state['error']}")
+            return
+        path = state["path"]
+        self.say(f"Downloaded: {path}")
+        old = [p for p, _ in kept_datasets() if os.path.abspath(p) != os.path.abspath(path)]
+        if not self.window.open_path(path):
+            self.say("It could not be opened.")
+            return
+        self.say("Opened.")
+        if self.download_remove:
+            for p in old:
+                try:
+                    forget_dataset(p)
+                    self.say(f"Removed the older {os.path.basename(p)}")
+                except (OSError, ValueError) as e:
+                    self.say(f"Could not remove {os.path.basename(p)}: {e}")
+
+    def stop_download(self):
+        state = getattr(self, "download_state", None)
+        if state is not None and not state["finished"]:
+            state["stop"] = True
+
+    # --- the install (0.3.13) --------------------------------------------------------------------
+    def install_folder(self):
+        """The folder this Reader was installed into by a USB drive (installed.json there), or None."""
+        parent = os.path.dirname(HERE)
+        return parent if os.path.exists(os.path.join(parent, "installed.json")) else None
+
+    def check_install(self):
+        """Check the install this copy belongs to, as the USB installer's report does, and show the report."""
+        dest = self.install_folder()
+        self.heading("Check the install")
+        if dest is None:
+            self.say("This copy was not installed from a USB drive (no installed.json in the folder above it), "
+                     "so there is no install to check.  'Check this copy' says what it is made of.")
+            return
+        try:
+            import usb_install
+        except ImportError as e:
+            self.say(f"usb_install.py could not be loaded: {e}")
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            text = usb_install.InstallCheck(dest).run()
+        finally:
+            QApplication.restoreOverrideCursor()
+        for line in text.rstrip("\n").split("\n"):
+            self.say(line)
+
     def stop(self):
-        """Called as the window closes: no test run is left behind."""
+        """Called as the window closes: no test run or download is left behind."""
+        self.stop_download()
         if self.process is not None and self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.kill()
             self.process.waitForFinished(2000)
