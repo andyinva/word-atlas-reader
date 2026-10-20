@@ -16,6 +16,7 @@ import glob
 import os
 import py_compile
 import sqlite3
+import site
 import sys
 import tempfile
 import time
@@ -607,7 +608,10 @@ def _():
         assert not atlas_usb.check_drive(drive, log=lines.append), "the drive does not read back sound"
         # The drive's installer, as a new user would run it, with a home folder of its own
         # (--no-pyqt: a test never fetches PyQt6 from the internet)
-        env = dict(os.environ, HOME=home, USERPROFILE=home, QT_QPA_PLATFORM="offscreen")
+        env = dict(os.environ, HOME=home, USERPROFILE=home, QT_QPA_PLATFORM="offscreen",
+                   # A PyQt6 installed with pip --user lives under the real
+                   # home folder; keep it findable when HOME is a stand-in
+                   PYTHONUSERBASE=site.getuserbase())
         env.pop("WORD_ATLAS_READER_HOME", None)
         command = [sys.executable, os.path.join(root, "install.py"), "--app", "reader", "--dest", dest,
                    "--yes", "--no-shortcuts", "--no-pyqt"]
@@ -922,7 +926,10 @@ def _():
         options.update({"atlas": False, "dataset": SAMPLE, "wheels": False, "sync": False})
         atlas_usb.build(drive, options, None, HERE, log=lambda *a: None)
         root = atlas_usb.drive_root(drive)
-        env = dict(os.environ, HOME=home, USERPROFILE=home, QT_QPA_PLATFORM="offscreen")
+        env = dict(os.environ, HOME=home, USERPROFILE=home, QT_QPA_PLATFORM="offscreen",
+                   # A PyQt6 installed with pip --user lives under the real
+                   # home folder; keep it findable when HOME is a stand-in
+                   PYTHONUSERBASE=site.getuserbase())
         env.pop("WORD_ATLAS_READER_HOME", None)
         out = subprocess.run([sys.executable, os.path.join(root, "install.py"), "--app", "reader", "--dest", dest,
                               "--yes", "--no-shortcuts", "--no-pyqt"], capture_output=True, text=True, env=env,
