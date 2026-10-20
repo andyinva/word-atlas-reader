@@ -634,6 +634,128 @@ def _():
 
 
 # --- housekeeping --------------------------------------------------------------------------
+# --- the Heat tab (0.3.12) ----------------------------------------------------------
+def make_heat_dataset(path):
+    """
+    A small results file of the 0.10.101 kind: one page, two strips of
+    one book with their windows and spots, a named passage, and two
+    chapters of King James text with their tags.  The real pack is too
+    large for the repository; this has every table the Heat tab reads.
+    """
+    import atlas_report
+    db = sqlite3.connect(path)
+    atlas_report.ensure_results_schema(db)
+    db.executescript(atlas_report.PACK_SCHEMA)
+    db.execute("INSERT INTO runs VALUES (1, '0.10.101', 'test build', '2026-10-20 08:00:00', 'test')")
+    db.execute("INSERT INTO pages VALUES (1, 1, 'book_ruth', 'Book page [Ruth] (KJV)', 'Book', '')")
+    db.execute("INSERT INTO kjv_books VALUES (8, 'Ruth', 'Rth', 'Old')")
+    vid = 0
+    for ch in (1, 2):
+        for v in range(1, 13):
+            vid += 1
+            db.execute("INSERT INTO kjv_verses VALUES (?, 8, ?, ?, ?)", (vid, ch, v, f"Ruth {ch}:{v} text"))
+            db.execute("INSERT INTO kjv_tags VALUES (?, 1, 'H7327', NULL, 'Ruth')", (vid,))
+    db.execute("INSERT INTO passages VALUES (1, 'Test passage', 'two ranges', '')")
+    db.execute("INSERT INTO passage_ranges VALUES (1, 8, 1, 1, 1, 3)")
+    db.execute("INSERT INTO passage_ranges VALUES (1, 8, 2, 4, 2, 5)")
+    for strip, kind, roots in (("density", "measure", ""), ("rest", "word list", "H4496 rest\nH5117 rest")):
+        db.execute("INSERT INTO heat_strips VALUES (?, 'Old', ?, ?, ?, '2026-10-20')",
+                   (strip, kind, f"what {strip} measures", roots))
+        for pos in range(15):
+            z = 2.5 if (strip == "rest" and 3 <= pos <= 6) else -0.2
+            c1, v1 = divmod(pos, 12)
+            c2, v2 = divmod(pos + 9, 12)
+            db.execute("INSERT INTO heat_windows VALUES ('Ruth', 'z', 'bible', 10, ?, ?, ?, ?, ?, ?, ?)",
+                       (strip, pos, c1 + 1, v1 + 1, c2 + 1, v2 + 1, z))
+    db.execute("INSERT INTO heat_spots VALUES ('Ruth', 'z', 'bible', 10, 'rest', 'spot', 2.0, 1, 'Ruth 1:4-2:4', "
+               "1, 4, 2, 4, 2.5, 'z +2.50', '1:9', \"'rest' 3\")")
+    db.commit()
+    db.close()
+
+
+@test("the heat lookups answer from a 0.10.101 file, and an older file answers empty")
+def _():
+    from reader_data import Dataset
+    path = os.path.join(TEST_HOME, "heat_results.db")
+    make_heat_dataset(path)
+    d = Dataset.open(path)
+    assert d.has_heat() and d.has_passages() and d.has_kjv()
+    assert d.heat_books() == ["Ruth"], d.heat_books()
+    view = d.heat_views("Ruth")[0]
+    assert view == ("z", "bible", 10), view
+    strips = d.heat_strips("Ruth", view)
+    assert [s[0] for s in strips] == ["density", "rest"], strips
+    assert strips[1][1] == "word list" and "H5117 rest" in strips[1][3]
+    assert len(d.heat_windows("Ruth", view, "rest")) == 15
+    spots = d.heat_spots("Ruth", view, "rest")
+    assert len(spots) == 1 and spots[0]["words"] == "'rest' 3", spots
+    assert d.passage_ranges(1) == [("Ruth", 1, 1, 1, 3), ("Ruth", 2, 4, 2, 5)]
+    assert d.book_number("rth") == 8 and d.book_number("ruth") == 8 and d.book_number("Exodus") is None
+    verses = d.kjv_range(8, 1, 11, 2, 2, tags=True)
+    assert [(c, v) for c, v, t, w in verses] == [(1, 11), (1, 12), (2, 1), (2, 2)], verses
+    assert verses[0][3] == [("Ruth", "H7327", None)]
+    d.close()
+    old = Dataset.open(SAMPLE)
+    assert not old.has_heat() and old.heat_books() == [] and old.passages() == [] and old.kjv_range(1, 1, 1, 1, 2) == []
+    assert "no heat strips" in old.describe()
+    old.close()
+
+
+@test("references are read as the Heat tab's box takes them")
+def _():
+    from reader_data import Dataset
+    from reader_heat import parse_reference, verse_span
+    d = Dataset.open(os.path.join(TEST_HOME, "heat_results.db"))
+    assert parse_reference("Ruth 1:4-9", d) == ("Ruth", 1, 4, 1, 9)
+    assert parse_reference("ruth 1:4-2:2", d) == ("Ruth", 1, 4, 2, 2)
+    assert parse_reference("Ruth 2", d) == ("Ruth", 2, 1, 2, 999)
+    assert parse_reference("Ruth 1:3", d) == ("Ruth", 1, 3, 1, 3)
+    assert parse_reference("Nowhere 3:1", d) is None and parse_reference("Ruth", d) is None
+    assert verse_span(2, 1, 2, 999) == "2" and verse_span(1, 4, 2, 2) == "1:4-2:2" and verse_span(1, 3, 1, 3) == "1:3"
+    d.close()
+
+
+@test("the Heat tab draws the strips, lists a strip's spots, reads verses, and says why an old file is bare")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    import word_atlas_reader
+    w = word_atlas_reader.ReaderWindow()
+    try:
+        assert w.open_path(os.path.join(TEST_HOME, "heat_results.db"))
+        h = w.heat_tab
+        assert w.tabs.tabText(w.tabs.indexOf(h)) == "Heat" and w.tabs.tabText(w.tabs.count() - 1) == "Tools"
+        assert h.book_box.currentText() == "Ruth" and [s[0] for s in h.strips] == ["density", "rest"]
+        # Click the rest strip in a hot window: its spot is listed and the window's verses shown
+        h.chart.resize(900, 200)
+        h.chart.selected = 1
+        h.chart_clicked(1, 4)
+        assert h.spot_grid.rowCount() == 1 and h.spot_grid.item(0, 4).text() == "'rest' 3"
+        assert "Ruth 1:5 text" in h.text_view.toPlainText(), h.text_view.toPlainText()[:200]
+        h.spot_chosen(0, 0)
+        assert h.chart.marked is not None and "hot spot Ruth 1:4-2:4" in h.text_view.toPlainText()
+        h.tags_check.setChecked(True)
+        assert "Ruth H7327" in h.text_view.toPlainText()
+        h.passage_chosen(h.passage_box.findText("Test passage"))
+        assert "Ruth 2:4 text" in h.text_view.toPlainText()
+        h.verse_edit.setText("Ruth 2:11-12; Nowhere 1:1")
+        h.verses_asked()
+        text = h.text_view.toPlainText()
+        assert "Ruth 2:12 text" in text and "not read: Nowhere 1:1" in text, text[:200]
+        # Only the word lists
+        h.kind_box.setCurrentIndex(h.kind_box.findText("word list"))
+        assert [s[0] for s in h.strips] == ["rest"]
+        # The chart's tooltip text names the strip and its words (hit test on a label)
+        row, pos = h.chart.hit(h.chart.rect().topLeft() + type(h.chart.rect().topLeft())(10, h.chart.TOP + 4))
+        assert (row, pos) == (0, -1), (row, pos)
+        # An older file: the tab says why it is bare
+        assert w.open_path(SAMPLE)
+        assert "made before Word Atlas 0.10.101" in h.note.text() and h.book_box.count() == 0
+        assert h.spot_grid.rowCount() == 0 and not h.verse_edit.isEnabled()
+    finally:
+        w.close()
+
+
 @test("housekeeping: no em dash in any .py or .md, every .py compiles")
 def _():
     for path in glob.glob("*.py") + glob.glob("*.md"):

@@ -36,9 +36,39 @@ HELP = {
     "pages": "The pages the run holds, grouped by kind: Book, Chapter, Section, Passage, Word, Kin, "
              "Testament, Compare.  Click one to show it on the Page and Table tabs.",
     "tabs": "The views of the chosen page: Page (as text), Table (one table as a grid), Search (hits), "
-            "Results (the canon-wide questions from the Results menu) and Ask Claude.  Tools, the last "
+            "Results (the canon-wide questions from the Results menu), Ask Claude, and Heat (a book's heat strips, their spots and the King James text).  Tools, the last "
             "tab, holds what is wanted now and then: the dataset's details, a query of your own, this "
             "copy's tests and guest key, and passing the Reader on as a zip or on a USB drive.",
+    "heat_tab": "The heat strips of a book, its spots and the King James text, from the rows the main program "
+                "stored (datasets of Word Atlas 0.10.101 or later).",
+    "heat_note": "What the Heat tab shows, or why it is empty: a dataset made before Word Atlas 0.10.101 has no "
+                 "heat rows.",
+    "heat_book": "The book whose strips are drawn.  Choosing a book's page on the left brings the same book here.",
+    "heat_view": "How the strips were measured: the scale (z, percentile or G2) and what ordinary is (every book "
+                 "of the same language, the book itself, or the other books of its kind).  These are the main "
+                 "program's heat reports: _ot or _nt and _contexts (z), _self (percentile), _g2, and _names (G2 "
+                 "against its kind).  All are in the same z-like units: +2 is about the top 2.3%.",
+    "heat_kind": "Which strips to draw: every one, or one kind: the five measures, feeling and its families, the "
+                 "word lists (ransom, rest, character ...), the names and numbers, the contexts (what a passage "
+                 "is about) or the voices (who speaks to whom).",
+    "heat_chart": "One row per strip, one cell per window of verses moving a verse at a time: red where the strip "
+                  "runs hot, blue where it runs cool, grey where it is ordinary, the colours of the main "
+                  "program's charts.  Point at a cell for its verses and score, at a name for what the strip "
+                  "measures and a word list's words.  Click a strip to list its spots; click a cell to read its "
+                  "verses.  Chapter numbers run along the top.",
+    "heat_line": "Which spots to list: those past the report's own line (z 2 on the z scale), or past the near "
+                 "line, three quarters of it (z 1.5), for near misses.",
+    "heat_spots": "The chosen strip's spots: runs of windows past the line, joined when they share half a window, "
+                  "with the peak (in the scale's own figure), the verse at its middle and the words that lit it "
+                  "with their counts, as the main program's report prints them.  Click one to outline it on the "
+                  "strip and read its verses.",
+    "heat_passage": "A named passage of the catalogue (the same passages the main program's Passage pages read): "
+                    "choose one to read its ranges below.",
+    "heat_verses": "A reference to read: Genesis 23:7-16, Genesis 23:7-24:2, Ruth 3, John 1:1; several split by "
+                   "';'.  Press Enter or Show.",
+    "heat_tags": "Show the Strong's number of each word under its verse, from the tags the atlas is built on.",
+    "heat_text": "The King James verses of the window, spot, passage or reference chosen, from the text the "
+                 "dataset carries.",
     "jump": "Jump to a section of the page: the text scrolls so that section's title is at the top.",
     "wrap": "Wrap long lines in the page text.  Off, the page is exactly as the main program's text file lays "
             "it out, and tables keep their columns; on, the long note lines fold to the window's width "

@@ -71,6 +71,16 @@ Notes on the data:
   arithmetic.
 - footers: the lines printed under a table (findings in words).
 - refs: the verse references behind a row.
+- In a dataset of Word Atlas 0.10.101 or later: heat_strips (each heat
+  strip, its kind and one sentence on what it measures; a word list's
+  roots), heat_windows (every window's z score on every strip, by book,
+  scale, norm and window size; scale 'z' with norm 'bible' is the usual
+  reading) and heat_spots (the hot and cool spots, line 'spot' at the
+  report's threshold and 'near' at three quarters of it, with the words
+  that lit them); passages and passage_ranges (the named passages);
+  kjv_books, kjv_verses and kjv_tags (the King James text and its
+  Strong's numbers).  schema_notes says in plain words what every table
+  and column holds and its units: query it when a column is unclear.
 
 The tables most questions want, by sections.number (titles vary by book):
 - Book page: 1 signature words (keyness against the rest of the testament),

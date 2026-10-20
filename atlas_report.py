@@ -374,6 +374,253 @@ CREATE INDEX IF NOT EXISTS idx_refs_section ON refs (section_id, row);
 """
 
 
+# The heat tables (0.10.101): written by atlas_heat.py on every run, so
+# the strips a heat report prints and charts are rows the Reader can
+# draw from, and Eval_data/ransom_rest_report.py reads its tables from
+# them instead of counting afresh.  A strip's figures depend on how it
+# was measured (the scale, what "ordinary" is, the window), so those
+# three stand in every key beside the book and the strip.
+HEAT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS heat_strips (
+    strip       TEXT NOT NULL,           -- the strip's name as the report heads it: density, emotion, ransom, persons
+    testament   TEXT NOT NULL,           -- Old or New: the testament whose books it is drawn for
+    kind        TEXT NOT NULL,           -- measure, feeling, feeling family, word list, names, context, voice
+    description TEXT NOT NULL,           -- one sentence saying what it measures
+    roots       TEXT NOT NULL DEFAULT '',-- a word list's roots with their plain words, one 'H3701 silver' per line
+    updated     TEXT NOT NULL,           -- when a run last wrote it
+    PRIMARY KEY (strip, testament)
+);
+CREATE TABLE IF NOT EXISTS heat_windows (
+    book          TEXT NOT NULL,
+    scale         TEXT NOT NULL,         -- z, percentile or g2 (atlas_heat.py --scale)
+    norm          TEXT NOT NULL,         -- what ordinary is: bible, book, group or group:NAME (--norm)
+    window_size   INTEGER NOT NULL,      -- verses per window (--window)
+    strip         TEXT NOT NULL,
+    position      INTEGER NOT NULL,      -- the window's place in the book, from 0
+    start_chapter INTEGER NOT NULL,
+    start_verse   INTEGER NOT NULL,
+    end_chapter   INTEGER NOT NULL,
+    end_verse     INTEGER NOT NULL,
+    z             REAL NOT NULL,         -- the window's score in z-like units
+    PRIMARY KEY (book, scale, norm, window_size, strip, position)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS heat_spots (
+    book          TEXT NOT NULL,
+    scale         TEXT NOT NULL,
+    norm          TEXT NOT NULL,
+    window_size   INTEGER NOT NULL,
+    strip         TEXT NOT NULL,
+    line          TEXT NOT NULL,         -- 'spot' at the run's threshold, 'near' at three quarters of it
+    threshold     REAL NOT NULL,         -- the line in z-like units
+    hot           INTEGER NOT NULL,      -- 1 for a hot spot, 0 for a cool one
+    span          TEXT NOT NULL,         -- the verse range as the report prints it: 'Genesis 23:7-24:2'
+    start_chapter INTEGER NOT NULL,
+    start_verse   INTEGER NOT NULL,
+    end_chapter   INTEGER NOT NULL,
+    end_verse     INTEGER NOT NULL,
+    peak_z        REAL NOT NULL,         -- the highest (or, cool, the lowest) window's score
+    peak_shown    TEXT NOT NULL,         -- the peak as the report prints it: 'z +3.29'
+    peak_at       TEXT NOT NULL,         -- the middle verse of the peak window: '23:12'
+    words         TEXT NOT NULL DEFAULT ''  -- the words that lit it, with their counts, as the report prints them
+);
+CREATE INDEX IF NOT EXISTS idx_heat_spots ON heat_spots (book, strip, scale, norm, window_size, line);
+"""
+
+# The tables atlas_pack.py adds to the packed copy, so that the .wadb
+# holds everything the Reader shows: the named passages of metadata.db
+# and the King James text with its Strong's tags from atlas_source.db.
+PACK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS passages (
+    passage_id  INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    source_note TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS passage_ranges (
+    passage_id    INTEGER NOT NULL REFERENCES passages(passage_id),
+    book_num      INTEGER NOT NULL,
+    chapter_start INTEGER NOT NULL,
+    verse_start   INTEGER NOT NULL,
+    chapter_end   INTEGER NOT NULL,
+    verse_end     INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kjv_books (
+    book_num    INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL,
+    abbreviation TEXT NOT NULL,
+    testament   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kjv_verses (
+    verse_id    INTEGER PRIMARY KEY,
+    book_num    INTEGER NOT NULL,
+    chapter     INTEGER NOT NULL,
+    verse       INTEGER NOT NULL,
+    text        TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kjv_tags (
+    verse_id    INTEGER NOT NULL,
+    position    INTEGER NOT NULL,
+    strongs     TEXT NOT NULL,
+    morphology  TEXT,
+    word        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_kjv_verses ON kjv_verses (book_num, chapter, verse);
+CREATE INDEX IF NOT EXISTS idx_kjv_tags ON kjv_tags (verse_id);
+"""
+
+SCHEMA_NOTES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS schema_notes (
+    table_name  TEXT NOT NULL,
+    column_name TEXT NOT NULL,           -- '' for a line about the table as a whole
+    meaning     TEXT NOT NULL,           -- what it holds, in plain words
+    units       TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (table_name, column_name)
+);
+"""
+
+# (table, column, what it holds, units).  A column of '' describes the
+# table.  Kept here, beside the schemas, so a new column gets its line
+# in the same edit; test_atlas.py checks the pack refuses a file without
+# the table.
+SCHEMA_NOTES = [
+    ("runs", "", "One row per run of the program that wrote pages into this file.", ""),
+    ("runs", "run_id", "The run's number.", "integer"),
+    ("runs", "version", "The Word Atlas version that made the run.", "version number"),
+    ("runs", "build", "The atlas's build line: its label, when it was built, how roots were counted.", "text"),
+    ("runs", "started", "When the run began.", "date and time"),
+    ("runs", "note", "What the run was, as given when it began (dossier all, a test).", "text"),
+    ("pages", "", "One row per page a run wrote: a book page, a chapter page, a word page and so on.", ""),
+    ("pages", "page_id", "The page's number.", "integer"),
+    ("pages", "run_id", "The run that wrote it (runs.run_id).", "integer"),
+    ("pages", "name", "The page's file-safe name, as reports/<name>.txt would have it.", "text"),
+    ("pages", "title", "The page's title as printed at its head.", "text"),
+    ("pages", "kind", "Book, Chapter, Section, Passage, Word, Kin, Testament or Compare.", "text"),
+    ("pages", "notes", "The lines printed under the title, one per line.", "text"),
+    ("sections", "", "One row per table on a page.", ""),
+    ("sections", "section_id", "The table's number.", "integer"),
+    ("sections", "page_id", "The page it is on (pages.page_id).", "integer"),
+    ("sections", "position", "Its place on the page, from 0.", "integer"),
+    ("sections", "number", "The section number as printed: 1, 1a, 4e, 7.2d, 7v.", "text"),
+    ("sections", "title", "The section's title as printed.", "text"),
+    ("sections", "note", "The note under the title: what the table is and how to read it, or why it declined.", "text"),
+    ("sections", "kind", "How a display draws it: table, heatmap, bars or scatter.", "text"),
+    ("sections", "columns", "The column names, separated by tabs.", "text"),
+    ("sections", "n_rows", "How many rows the table has.", "count"),
+    ("cells", "", "Every cell of every table, one row per cell.", ""),
+    ("cells", "section_id", "The table (sections.section_id).", "integer"),
+    ("cells", "row", "The row, from 0.", "integer"),
+    ("cells", "col", "The column, from 0.", "integer"),
+    ("cells", "column", "The column's name.", "text"),
+    ("cells", "value", "The cell exactly as the page prints it.", "text"),
+    ("cells", "number", "The cell as a number when it is one, for sums and sorting; empty otherwise.", "number"),
+    ("refs", "", "The verses behind a table row, as a click in the window opens them.", ""),
+    ("refs", "section_id", "The table (sections.section_id).", "integer"),
+    ("refs", "row", "The row, from 0.", "integer"),
+    ("refs", "reference", "A verse reference: 'Genesis 23:7'.", "verse reference"),
+    ("footers", "", "The lines printed under a table.", ""),
+    ("footers", "section_id", "The table (sections.section_id).", "integer"),
+    ("footers", "position", "The line's place, from 0.", "integer"),
+    ("footers", "text", "The line as printed.", "text"),
+    ("heat_strips", "", "One row per heat strip and testament: what the strip measures, written by atlas_heat.py.", ""),
+    ("heat_strips", "strip", "The strip's name as the heat report heads it.", "text"),
+    ("heat_strips", "testament", "The testament whose books the strip is drawn for: Old or New.", "text"),
+    ("heat_strips", "kind", "measure, feeling, feeling family, word list, names, context (what a passage is about) "
+                            "or voice (who speaks to whom).", "text"),
+    ("heat_strips", "description", "One sentence saying what the strip measures.", "text"),
+    ("heat_strips", "roots", "For a word-list strip, its roots with their plain words, one per line, copied from "
+                             "metadata.db's word_lists when the run was made; empty for other strips.", "Strong's number and word"),
+    ("heat_strips", "updated", "When a run last wrote the row.", "date and time"),
+    ("heat_windows", "", "Every window's score on every strip a heat run drew: the numbers behind the strip charts.", ""),
+    ("heat_windows", "book", "The book.", "book name"),
+    ("heat_windows", "scale", "How the score was measured: z (distance from ordinary in spreads), percentile or g2 "
+                              "(log-likelihood); all three are stored in the same z-like units.", "text"),
+    ("heat_windows", "norm", "What 'ordinary' was: bible (every book of the same language), book (the book itself), "
+                             "group (the other books of its kind) or group:NAME.", "text"),
+    ("heat_windows", "window_size", "Verses in each window.", "verses"),
+    ("heat_windows", "strip", "The strip (heat_strips.strip).", "text"),
+    ("heat_windows", "position", "The window's place in the book, from 0; the window moves one verse at a time.", "integer"),
+    ("heat_windows", "start_chapter", "The chapter of the window's first verse.", "chapter"),
+    ("heat_windows", "start_verse", "The window's first verse.", "verse"),
+    ("heat_windows", "end_chapter", "The chapter of the window's last verse.", "chapter"),
+    ("heat_windows", "end_verse", "The window's last verse.", "verse"),
+    ("heat_windows", "z", "The window's score: 0 is ordinary, +2 far above (about the top 2.3%), -2 far below.",
+     "z-like units"),
+    ("heat_spots", "", "The hot and cool spots of each strip: runs of windows past a line, joined when they share "
+                       "half a window, as the heat report lists them.", ""),
+    ("heat_spots", "book", "The book.", "book name"),
+    ("heat_spots", "scale", "As in heat_windows.", "text"),
+    ("heat_spots", "norm", "As in heat_windows.", "text"),
+    ("heat_spots", "window_size", "As in heat_windows.", "verses"),
+    ("heat_spots", "strip", "The strip (heat_strips.strip).", "text"),
+    ("heat_spots", "line", "spot: past the run's threshold, as the report lists them; near: past three quarters of "
+                           "it (z 1.5 when the threshold is 2), for 'near miss' readings.", "text"),
+    ("heat_spots", "threshold", "The line the windows had to pass.", "z-like units"),
+    ("heat_spots", "hot", "1 for a hot spot (above), 0 for a cool one (below).", "0 or 1"),
+    ("heat_spots", "span", "The verses from the first window's start to the last window's end, as printed.", "verse range"),
+    ("heat_spots", "start_chapter", "The chapter where the spot begins.", "chapter"),
+    ("heat_spots", "start_verse", "The verse where the spot begins.", "verse"),
+    ("heat_spots", "end_chapter", "The chapter where the spot ends.", "chapter"),
+    ("heat_spots", "end_verse", "The verse where the spot ends.", "verse"),
+    ("heat_spots", "peak_z", "The score of the spot's strongest window.", "z-like units"),
+    ("heat_spots", "peak_shown", "The peak as the report prints it, with its scale's own figure.", "text"),
+    ("heat_spots", "peak_at", "The middle verse of the strongest window.", "chapter:verse"),
+    ("heat_spots", "words", "The words that lit the spot with their counts, as the report prints them: the hammered "
+                            "word, a family's categories and words, or a names or word-list strip's words.", "text"),
+    ("passages", "", "The named passages of the catalogue (metadata.db), copied in when the file is packed.", ""),
+    ("passages", "passage_id", "The passage's number.", "integer"),
+    ("passages", "name", "Its name: Harlot city, Ransom and rest.", "text"),
+    ("passages", "description", "What it is.", "text"),
+    ("passages", "source_note", "Where its ranges come from.", "text"),
+    ("passage_ranges", "", "The verse ranges of each named passage.", ""),
+    ("passage_ranges", "passage_id", "The passage (passages.passage_id).", "integer"),
+    ("passage_ranges", "book_num", "The book: 1 is Genesis, 66 Revelation.", "book number"),
+    ("passage_ranges", "chapter_start", "The range's first chapter.", "chapter"),
+    ("passage_ranges", "verse_start", "The range's first verse.", "verse"),
+    ("passage_ranges", "chapter_end", "The range's last chapter.", "chapter"),
+    ("passage_ranges", "verse_end", "The range's last verse.", "verse"),
+    ("kjv_books", "", "The books of the King James text, copied from atlas_source.db when the file is packed.", ""),
+    ("kjv_books", "book_num", "The book's number: 1 is Genesis, 66 Revelation.", "book number"),
+    ("kjv_books", "name", "The book's name.", "text"),
+    ("kjv_books", "abbreviation", "Its short name.", "text"),
+    ("kjv_books", "testament", "Old or New.", "text"),
+    ("kjv_verses", "", "The King James text, one row per verse, as Word Atlas builds on it.", ""),
+    ("kjv_verses", "verse_id", "The verse's number in atlas_source.db (kjv_tags.verse_id).", "integer"),
+    ("kjv_verses", "book_num", "The book (kjv_books.book_num).", "book number"),
+    ("kjv_verses", "chapter", "The chapter.", "chapter"),
+    ("kjv_verses", "verse", "The verse.", "verse"),
+    ("kjv_verses", "text", "The verse's text.", "text"),
+    ("kjv_tags", "", "The Strong's numbers tagged on the King James words.", ""),
+    ("kjv_tags", "verse_id", "The verse (kjv_verses.verse_id).", "integer"),
+    ("kjv_tags", "position", "The word's place in the verse.", "integer"),
+    ("kjv_tags", "strongs", "The Strong's number: H3701, G3056.", "Strong's number"),
+    ("kjv_tags", "morphology", "The tag's grammar code, where the source gives one.", "code"),
+    ("kjv_tags", "word", "The English word or words the number is tagged on.", "text"),
+    ("schema_notes", "", "This table: what every table and column of the file holds, in plain words.", ""),
+    ("schema_notes", "table_name", "The table.", "text"),
+    ("schema_notes", "column_name", "The column, or empty for the table as a whole.", "text"),
+    ("schema_notes", "meaning", "What it holds.", "text"),
+    ("schema_notes", "units", "Its units.", "text"),
+]
+
+
+def ensure_results_schema(db):
+    """
+    Create every table of the results file that is missing (the pages,
+    the heat tables, schema_notes) and write schema_notes afresh, so a
+    file written by any part of the program describes itself.  The
+    pack's own tables (passages, the King James text) are added by
+    atlas_pack.py to the packed copy only.
+    """
+    db.executescript(RESULTS_SCHEMA + HEAT_SCHEMA + SCHEMA_NOTES_SCHEMA)
+    db.executemany("INSERT OR REPLACE INTO schema_notes VALUES (?, ?, ?, ?)", SCHEMA_NOTES)
+    db.commit()
+
+
+def results_path():
+    """reports/results.db beside the program, where the dossier and the heat runs write."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports", "results.db")
+
+
 class ResultsWriter:
     """
     Writes reports to a SQLite results file, the same Report objects
@@ -394,7 +641,9 @@ class ResultsWriter:
         self.path = path
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self.db = sqlite3.connect(path)
-        self.db.executescript(RESULTS_SCHEMA)
+        # Every table, the heat tables and schema_notes among them, so
+        # the file describes itself whichever program wrote it first
+        ensure_results_schema(self.db)
 
     def begin(self, atlas, note=""):
         """Open a run and return its id."""

@@ -11,7 +11,10 @@ questions (runs, shares, deltas, seams, declined, diff); and a panel
 for asking Claude questions of the data with the reader's own API key.
 The Reader keeps its own copy of each dataset it is given, in the
 datasets folder beside the program, and opens that copy from then on.
-A last tab, Tools (reader_tools.py), holds what is wanted now and
+A Heat tab (reader_heat.py, 0.3.12) draws a book's heat strips and
+lists their spots from the rows a dataset of Word Atlas 0.10.101 or
+later carries, with the King James text and the named passages beside
+them.  A last tab, Tools (reader_tools.py), holds what is wanted now and
 then: what the open dataset is made of, a reading SQL query of one's
 own, the Reader's tests and guest key, and passing the Reader on as a
 zip or on a USB drive that installs it.
@@ -25,6 +28,7 @@ standard library only and live beside it.
 
 import faulthandler
 import os
+import re
 import signal
 import sys
 import time
@@ -47,8 +51,9 @@ import reader_credits
 import reader_guest
 import reader_questions
 from reader_tools import ToolsTab
+from reader_heat import HeatTab
 
-VERSION = "0.3.11"
+VERSION = "0.3.12"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -363,6 +368,11 @@ class ReaderWindow(QMainWindow):
         self._build_search_tab()
         self._build_results_tab()
         self._build_claude_tab()
+        # The Heat tab (0.3.12): the heat strips, spots and King James
+        # text a dataset of Word Atlas 0.10.101 or later carries
+        self.heat_tab = HeatTab(self)
+        self.heat_tab.setProperty("help", "heat_tab")
+        self.tabs.addTab(self.heat_tab, "Heat")
         # The Tools tab comes last, so the tabs before it keep their places
         self.tools_tab = ToolsTab(self)
         self.tabs.addTab(self.tools_tab, "Tools")
@@ -682,6 +692,7 @@ class ReaderWindow(QMainWindow):
         if self.data is not None:
             self.data.close()
         self.data = data
+        self.heat_tab.set_dataset(data)
         self.settings["last_file"] = path
         save_settings(self.settings)
         self.setWindowTitle(f"Word Atlas Reader {VERSION}  -  {os.path.basename(path)}")
@@ -747,6 +758,10 @@ class ReaderWindow(QMainWindow):
         """Render the page, fill the section boxes, and jump to a section when asked."""
         self.report = self.data.report(page_id)
         self.page_text = render(self.report, atlas=self.data.build_of(self.run_id))
+        # A book's page brings the same book up on the Heat tab
+        book = re.match(r"Book page \[(.+?)\]", self.report.title)
+        if book:
+            self.heat_tab.show_book(book.group(1))
         self.page_view.setPlainText(self.page_text)
         self.jump_box.blockSignals(True)
         self.table_box.blockSignals(True)

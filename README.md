@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.11. Andrew Hopkins, with Claude.
+Version 0.3.12. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -70,6 +70,17 @@ The first time a `.wadb` is opened the Reader also unpacks it into
 `~/.word_atlas_reader/datasets/` and reads from there afterwards; a
 changed archive is unpacked again. The Reader never writes to a
 dataset: the database is opened read-only.
+
+**What a dataset of Word Atlas 0.10.101 or later holds besides the
+pages.** The heat strips of every book (`heat_strips`, `heat_windows`,
+`heat_spots`, written by the main program's `run_heat.py --all`), the
+named passages of its catalogue (`passages`, `passage_ranges`), the
+King James text with its Strong's tags (`kjv_books`, `kjv_verses`,
+`kjv_tags`), and `schema_notes`, which says in plain words what every
+table and column holds. The Heat tab reads them, and nothing else of
+the atlas need be on the stick. An older dataset opens as it always
+did; its Heat tab says it has no strips and which file to open
+instead.
 
 ## What the window shows
 
@@ -136,6 +147,28 @@ account, since only the rows Claude asks for travel, never the whole
 file. Without a key, "Copy as a prompt for claude.ai" puts the
 question, the schema and the open page on the clipboard, to paste into
 claude.ai or any assistant by hand.
+
+The **Heat** tab draws a book's heat strips from the rows the main
+program stored: one row per strip along the book, a cell per window of
+ten verses moving a verse at a time, red where the strip runs hot,
+blue where it runs cool and grey where it is ordinary, in the colours
+of the main program's charts. Choose the book (choosing a book's page
+on the left brings it up too), how it was measured (z against every
+book of its language, the usual reading; percentile against the book
+itself; G2 against the language or against the book's own kind) and
+which kinds of strip to show (the five measures, feeling and its
+families, the word lists such as ransom and rest, the names and
+numbers, the contexts and the voices). Point at a cell for its verses
+and score, and at a strip's name for what it measures and, for a word
+list, its words. Click a strip to list its hot and cool spots below,
+with the words that lit them as the main program's heat report prints
+them, at the report's line or at the near line (three quarters of
+it); click a spot to outline it on the strip. Clicking a cell or a
+spot shows its King James verses on the right, where a named passage
+can be chosen or a reference typed (Genesis 23:7-16, Ruth 3, John
+1:1), with the Strong's numbers of the words when asked. Nothing on
+the tab is counted afresh: every figure is the one the main program
+wrote.
 
 The **Tools** tab, the last one, holds what is wanted now and then,
 kept behind a tab so the window opens as plain as it always has. It
@@ -281,6 +314,7 @@ be thought of as a small prepaid card, never as a secret.
 | `reader_questions.py` | the Questions list, grouped by subject |
 | `reader_tools.py` | the Tools tab: dataset details, a query of your own, this copy's tests and guest key, the zip |
 | `reader_credits.py` | the credits and licences page: the sources, and which of them a dataset draws on |
+| `reader_heat.py` | the Heat tab: the strip chart, the spots, the King James text and the named passages |
 | `atlas_usb.py` | the USB drive: finds drives, makes or updates the `WordAtlas` folder on one, fetches PyQt6 for it (the same file as the main program's) |
 | `atlas_usb_dialog.py` | the USB drive's window (the same file as the main program's) |
 | `usb_install.py` | the installer, copied to a drive as `install.py` (the same file as the main program's) |
@@ -349,6 +383,15 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.12: the Heat tab (reader_heat.py): a book's heat strips drawn
+from the heat rows of a dataset made by Word Atlas 0.10.101 or later,
+the chosen strip's spots with the words that lit them, and the King
+James text of a window, a spot, a named passage or a reference typed
+in, with its Strong's numbers when asked. An older dataset opens as
+before and the tab says why it is bare. The Claude panel is told about
+the new tables and schema_notes. `atlas_report.py` and `atlas_pack.py`
+copied over from Word Atlas 0.10.101. Three tests.
 
 0.3.11: a credits and licences page (Help menu; reader_credits.py),
 which names the sources a dataset rests on and says which of them the

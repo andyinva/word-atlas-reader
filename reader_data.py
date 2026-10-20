@@ -58,6 +58,13 @@ PROGRAM_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
 # what the Reader opens of its own accord.
 SAMPLE_DIR = os.path.join(PROGRAM_DIR, "sample")
 
+# The kinds of heat strip, in the order the heat reports draw them, and
+# the five measures in their own order (atlas_heat.py's MEASURES)
+HEAT_KINDS = ["measure", "feeling", "feeling family", "word list", "names", "context", "voice"]
+HEAT_MEASURE_ORDER = ["density", "variety", "rare", "hammer", "action", "feeling",
+                      "emotion", "senses", "body", "violence", "sacred", "wealth", "harlotry",
+                      "nations", "persons", "home", "numbers"]
+
 # The names inside a .wadb archive
 DB_MEMBER = "results.db"
 MANIFEST_MEMBER = "manifest.json"
@@ -387,6 +394,144 @@ class Dataset:
             hits.append((r["page_id"], r["page"], r["number"], -1, "footer", r["text"]))
         return hits
 
+    # --- the heat strips, the passages and the King James text (0.10.101) -----
+    # A dataset packed by Word Atlas 0.10.101 or later holds the heat
+    # tables (heat_strips, heat_windows, heat_spots), the named passages
+    # and the King James text with its tags.  An older one holds none of
+    # them: every method below then answers empty, and has_heat() and
+    # the others say so, so the window can say why the Heat tab is bare.
+
+    def _has(self, *tables):
+        names = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        return all(t in names for t in tables)
+
+    def has_heat(self):
+        """True when the file holds heat rows."""
+        if not self._has("heat_strips", "heat_windows", "heat_spots"):
+            return False
+        return self.db.execute("SELECT 1 FROM heat_windows LIMIT 1").fetchone() is not None
+
+    def has_passages(self):
+        return self._has("passages", "passage_ranges")
+
+    def has_kjv(self):
+        return self._has("kjv_books", "kjv_verses", "kjv_tags")
+
+    def heat_books(self):
+        """The books with heat rows, in Bible order when the file holds the King James books."""
+        if not self.has_heat():
+            return []
+        books = [r[0] for r in self.db.execute("SELECT DISTINCT book FROM heat_windows")]
+        if self.has_kjv():
+            order = {r[0]: r[1] for r in self.db.execute("SELECT name, book_num FROM kjv_books")}
+            return sorted(books, key=lambda b: (order.get(b, 999), b))
+        return sorted(books)
+
+    def heat_views(self, book):
+        """The ways a book's strips were measured: [(scale, norm, window size)], the usual one first."""
+        rows = [tuple(r) for r in self.db.execute(
+            "SELECT DISTINCT scale, norm, window_size FROM heat_windows WHERE book = ?", (book,))]
+        first = {("z", "bible"): 0, ("percentile", "book"): 1, ("g2", "bible"): 2, ("g2", "group"): 3}
+        return sorted(rows, key=lambda v: (first.get(v[:2], 9), v))
+
+    def heat_strips(self, book, view):
+        """
+        The strips drawn for a book in one view, in the order the heat
+        reports draw them: [(strip, kind, description, roots)].
+        """
+        scale, norm, size = view
+        names = [r[0] for r in self.db.execute(
+            "SELECT DISTINCT strip FROM heat_windows WHERE book = ? AND scale = ? AND norm = ? AND window_size = ?",
+            (book, scale, norm, size))]
+        testament = None
+        if self.has_kjv():
+            row = self.db.execute("SELECT testament FROM kjv_books WHERE name = ?", (book,)).fetchone()
+            testament = row[0] if row else None
+        info = {}
+        for strip, tst, kind, description, roots in self.db.execute(
+                "SELECT strip, testament, kind, description, roots FROM heat_strips"):
+            if strip in names and (strip not in info or tst == testament):
+                info[strip] = (kind, description, roots)
+        kinds = HEAT_KINDS
+        measures = HEAT_MEASURE_ORDER
+
+        def key(strip):
+            kind = info.get(strip, ("",))[0]
+            within = measures.index(strip) if strip in measures else len(measures)
+            return (kinds.index(kind) if kind in kinds else len(kinds), within, strip.lower())
+        return [(s,) + info.get(s, ("", "", "")) for s in sorted(names, key=key)]
+
+    def heat_windows(self, book, view, strip):
+        """[(position, start chapter, start verse, end chapter, end verse, z)] in book order."""
+        scale, norm, size = view
+        return [tuple(r) for r in self.db.execute(
+            "SELECT position, start_chapter, start_verse, end_chapter, end_verse, z FROM heat_windows "
+            "WHERE book = ? AND scale = ? AND norm = ? AND window_size = ? AND strip = ? ORDER BY position",
+            (book, scale, norm, size, strip))]
+
+    def heat_spots(self, book, view, strip, line="spot"):
+        """
+        The spots of one strip at one line ('spot' or 'near'), hot first
+        then cool, in book order: [dict of the heat_spots columns].
+        """
+        scale, norm, size = view
+        cur = self.db.execute(
+            "SELECT * FROM heat_spots WHERE book = ? AND scale = ? AND norm = ? AND window_size = ? AND strip = ? "
+            "AND line = ? ORDER BY hot DESC, start_chapter, start_verse", (book, scale, norm, size, strip, line))
+        return [dict(r) for r in cur]
+
+    def passages(self):
+        """The named passages: [(passage_id, name, description)]."""
+        if not self.has_passages():
+            return []
+        return [tuple(r) for r in self.db.execute("SELECT passage_id, name, description FROM passages ORDER BY name")]
+
+    def passage_ranges(self, passage_id):
+        """[(book name, chapter start, verse start, chapter end, verse end)] of one passage."""
+        names = self.book_names()
+        return [(names.get(r[0], str(r[0])),) + tuple(r)[1:] for r in self.db.execute(
+            "SELECT book_num, chapter_start, verse_start, chapter_end, verse_end FROM passage_ranges "
+            "WHERE passage_id = ? ORDER BY rowid", (passage_id,))]
+
+    def book_names(self):
+        """{book number: name} from the King James books, empty without them."""
+        if not self.has_kjv():
+            return {}
+        return {r[0]: r[1] for r in self.db.execute("SELECT book_num, name FROM kjv_books")}
+
+    def book_number(self, name):
+        """The book's number (1 Genesis ... 66 Revelation), by name or abbreviation, any case; None if unknown."""
+        if not self.has_kjv():
+            return None
+        key = name.strip().lower().replace(" ", "")
+        for num, book, abbr in self.db.execute("SELECT book_num, name, abbreviation FROM kjv_books"):
+            if key in (book.lower().replace(" ", ""), (abbr or "").lower().replace(" ", "")):
+                return num
+        for num, book in self.db.execute("SELECT book_num, name FROM kjv_books ORDER BY book_num"):
+            if book.lower().replace(" ", "").startswith(key):
+                return num
+        return None
+
+    def kjv_range(self, book_num, c1, v1, c2, v2, tags=False):
+        """
+        The King James verses from c1:v1 to c2:v2 of one book:
+        [(chapter, verse, text, tags)], tags a list of (word, Strong's
+        number, morphology) when asked for, else [].
+        """
+        if not self.has_kjv():
+            return []
+        rows = self.db.execute(
+            "SELECT verse_id, chapter, verse, text FROM kjv_verses WHERE book_num = ? "
+            "AND (chapter * 1000 + verse) BETWEEN ? AND ? ORDER BY chapter, verse",
+            (book_num, c1 * 1000 + v1, c2 * 1000 + v2)).fetchall()
+        out = []
+        for vid, ch, v, text in rows:
+            t = [tuple(r) for r in self.db.execute(
+                "SELECT word, strongs, morphology FROM kjv_tags WHERE verse_id = ? ORDER BY position", (vid,))] \
+                if tags else []
+            out.append((ch, v, text, t))
+        return out
+
     # --- the schema, as words, for the Claude panel ----------------------------
     def schema_text(self):
         """The CREATE statements of the database, for a question-answerer that writes SQL."""
@@ -399,4 +544,5 @@ class Dataset:
         pages = sum(r[4] for r in runs)
         made = self.manifest.get("packed", "")
         tail = f", packed {made}" if made else ""
-        return f"{os.path.basename(self.source_path)}: {len(runs)} run(s), {pages} pages{tail}"
+        heat = "" if self.has_heat() else ", no heat strips (made before Word Atlas 0.10.101)"
+        return f"{os.path.basename(self.source_path)}: {len(runs)} run(s), {pages} pages{tail}{heat}"

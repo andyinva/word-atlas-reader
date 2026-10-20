@@ -47,7 +47,7 @@ FROZEN = bool(getattr(sys, "frozen", False))      # a built copy (PyInstaller): 
 
 # The files a copy of the Reader is made of; "Check this copy" says which are here
 EXPECTED_FILES = ["word_atlas_reader.py", "reader_data.py", "reader_claude.py", "reader_guest.py", "reader_help.py",
-                  "reader_questions.py", "reader_tools.py", "reader_credits.py", "atlas_report.py", "atlas_results.py", "atlas_listed.py",
+                  "reader_questions.py", "reader_tools.py", "reader_credits.py", "reader_heat.py", "atlas_report.py", "atlas_results.py", "atlas_listed.py",
                   "atlas_usb.py", "atlas_usb_dialog.py", "usb_install.py"]
 
 
@@ -284,9 +284,19 @@ class ToolsTab(QWidget):
                      + (f"  ({note})" if note else ""))
         self.say("")
         self.say("Rows in each table:")
-        for table in ("runs", "pages", "sections", "cells", "refs", "footers"):
+        # The pages' tables, then those a dataset of Word Atlas 0.10.101
+        # or later adds (the heat rows, the passages, the King James text,
+        # schema_notes), each only when the file has it
+        present = {r[0] for r in data.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        for table in ("runs", "pages", "sections", "cells", "refs", "footers", "heat_strips", "heat_windows",
+                      "heat_spots", "passages", "passage_ranges", "kjv_books", "kjv_verses", "kjv_tags",
+                      "schema_notes"):
+            if table not in present:
+                continue
             n = data.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            self.say(f"  {table:9} {n:>12,}")
+            self.say(f"  {table:14} {n:>12,}")
+        if "heat_windows" not in present:
+            self.say("  (no heat strips, passages or King James text: a dataset made before Word Atlas 0.10.101)")
         kinds = data.db.execute("SELECT kind, COUNT(*) FROM pages WHERE run_id = ? GROUP BY kind ORDER BY 2 DESC",
                                 (self.window.run_id,)).fetchall()
         self.say("")
