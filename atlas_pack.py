@@ -3,6 +3,7 @@
 atlas_pack.py  -  pack the results database for the Word Atlas Reader
 
     python3 atlas_pack.py [--out FILE] [--note TEXT] [--results FILE]
+    python3 atlas_pack.py --all-runs
     python3 atlas_pack.py --results OLD.db --allow-old-schema --out FILE
 
 Zips a copy of reports/results.db together with a small manifest (the
@@ -34,6 +35,17 @@ WHAT THE PACK HOLDS (0.10.101)
                        the King James text with its Strong's tags, from
                        atlas_source.db (atlas_source.py)
     No chart (SVG) and no other file goes into the pack.
+
+ONE RUN PER PACK (0.10.103)
+results.db keeps every dossier run so that two can be compared
+(atlas_results.py diff 1 2), but the Reader opens on the newest, and a
+second full run doubles the pack for nothing.  So --latest-only is the
+default: a pack never carries more than one run.  The packed copy keeps
+the newest run's pages, sections, cells, refs and footers and drops the
+other runs' rows (results.db itself is not touched), then is compacted.
+--all-runs packs every run, for a reader who wants the comparison; the
+manifest names the runs left out ("runs_left_out").  The heat rows,
+passages, King James text and sources belong to no run and always go.
 
 A results file without the schema_notes table was written before
 0.10.101 and lacks the heat tables, so the pack refuses it: write the
@@ -122,8 +134,20 @@ def add_reader_tables(db, metadata_path=METADATA_PATH, source_path=SOURCE_PATH):
     return {t: db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in PACK_TABLES}
 
 
+def keep_one_run(db, run_id):
+    """
+    In the packed copy, delete every run but run_id with its pages and
+    their sections, cells, refs and footers, then compact the file so
+    the space is given back.  Returns the run ids taken out.
+    """
+    others = [r[0] for r in db.execute("SELECT run_id FROM runs WHERE run_id != ? ORDER BY run_id", (run_id,))]
+    atlas_report.delete_runs(db, others)
+    return others
+
+
 def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=False,
-         metadata_path=METADATA_PATH, source_path=SOURCE_PATH, attribution_path=ATTRIBUTION_PATH):
+         metadata_path=METADATA_PATH, source_path=SOURCE_PATH, attribution_path=ATTRIBUTION_PATH,
+         all_runs=False):
     """Write the archive and return its path."""
     if not os.path.exists(results_path):
         raise PackRefused(f"{results_path} not found: write it with  python3 atlas_query.py dossier all --results")
@@ -161,6 +185,14 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
         copy = sqlite3.connect(copy_path)
         src.backup(copy)
         src.close()
+        # One run per pack unless asked otherwise: the newest
+        left_out = []
+        if not all_runs and len(runs) > 1:
+            print(f"results.db holds {len(runs)} runs; packing only the newest, run {runs[-1]['run_id']} "
+                  f"(--all-runs packs every run)")
+            left_out = keep_one_run(copy, runs[-1]["run_id"])
+            left_out = [r for r in runs if r["run_id"] in left_out]
+            runs = runs[-1:]
         added = add_reader_tables(copy, metadata_path, source_path)
         # The credits travel with the numbers: the sources table read
         # afresh from ATTRIBUTION.md into the copy, and described in its
@@ -189,6 +221,8 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
             "note": note,
             "schema": "0.10.103" if new_schema else "before 0.10.101 (packed with --allow-old-schema, for testing)",
             "runs": runs,
+            "runs_left_out": [{"run_id": r["run_id"], "version": r["version"], "started": r["started"]}
+                              for r in left_out],
             "tables": tables,
         }
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
@@ -206,7 +240,7 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
 
 
 def main(argv):
-    out, note, results, allow_old = None, "", RESULTS_PATH, False
+    out, note, results, allow_old, all_runs = None, "", RESULTS_PATH, False, False
     args = argv[1:]
     i = 0
     while i < len(args):
@@ -218,10 +252,14 @@ def main(argv):
             results = args[i + 1]; i += 2; continue
         if args[i] == "--allow-old-schema":
             allow_old = True; i += 1; continue
+        if args[i] == "--all-runs":
+            all_runs = True; i += 1; continue
+        if args[i] == "--latest-only":
+            all_runs = False; i += 1; continue          # the default, accepted to be said aloud
         if args[i] in ("-h", "--help"):
             print(__doc__); return
         i += 1
-    pack(results_path=results, out_path=out, note=note, allow_old_schema=allow_old)
+    pack(results_path=results, out_path=out, note=note, allow_old_schema=allow_old, all_runs=all_runs)
 
 
 if __name__ == "__main__":

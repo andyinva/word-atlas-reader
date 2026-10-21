@@ -20,8 +20,11 @@ reviewer) reads the answer the same way as a dossier.
     python3 atlas_results.py section Isaiah 7d        one section of one page, as stored
     python3 atlas_results.py diff 1 2                 the cells that differ between two runs, page by page
     python3 atlas_results.py sql "SELECT ..."         any query, printed as a table
+    python3 atlas_results.py prune [--keep N] [--yes] delete all but the newest N runs (default 2) and shrink the file
 
     --run N      read run N (default: the latest run)
+    --keep N     prune: how many of the newest runs to keep (default 2, at least 1)
+    --yes        prune: do not ask before deleting
     --out NAME   save under reports/results_NAME.txt (default: the question's name)
 
 The tables: runs (version, build, started, note); pages (run_id, name,
@@ -29,6 +32,14 @@ title, kind, notes); sections (page_id, position, number, title, note,
 kind, columns, n_rows); cells (section_id, row, col, column, value,
 number); refs (section_id, row, reference); footers (section_id,
 position, text).  A page's book is in its title's square brackets.
+
+PRUNE (0.10.104).  results.db keeps every run so that diff can compare
+them, and each canon-wide rerun adds one of some 400 MB.  The diff that
+matters is between the last run and the one before, so prune keeps the
+newest N runs (two by default) and deletes the rest with their pages,
+then vacuums so the file really shrinks.  The heat rows and the sources
+belong to no run and stay.  It asks before deleting (--yes does not).
+The canon-wide rerun suggests it when the file holds three runs or more.
 
 Author: Andrew Hopkins (with Claude)
 """
@@ -538,6 +549,66 @@ def q_sql(db, run, sql):
 
 
 # --- main -------------------------------------------------------------------------
+KEEP_RUNS = 2       # prune's default: the newest run and the one before it, for diff
+
+
+def prune(path=None, keep=KEEP_RUNS, yes=False, answer=input):
+    """
+    Delete all but the newest `keep` runs of a results file and vacuum
+    it.  Asks first unless yes; answer is the function that asks (the
+    tests pass their own).  Returns the run ids deleted.
+    """
+    import atlas_report
+    path = path or RESULTS_PATH
+    if keep < 1:
+        sys.exit("prune keeps at least one run (--keep 1 or more)")
+    if not os.path.exists(path):
+        sys.exit(f"{path} not found")
+    db = sqlite3.connect(path)
+    try:
+        runs = db.execute("SELECT run_id, version, started, note, "
+                          "(SELECT COUNT(*) FROM pages p WHERE p.run_id = r.run_id) FROM runs r "
+                          "ORDER BY run_id").fetchall()
+        doomed, kept = runs[:-keep], runs[-keep:]
+        print(f"{path}: {len(runs)} run(s), {os.path.getsize(path) / 1e6:,.1f} MB")
+        for run_id, version, started, note, pages in runs:
+            mark = "delete" if (run_id, version, started, note, pages) in doomed else "keep  "
+            print(f"  {mark}  run {run_id}: Word Atlas {version}, {started}, {pages} pages"
+                  + (f"  ({note})" if note else ""))
+        if not doomed:
+            print(f"Nothing to prune: {len(runs)} run(s), keeping {keep}.")
+            return []
+        if not yes:
+            reply = answer(f"Delete {len(doomed)} run(s) for good? [y/N] ").strip().lower()
+            if reply not in ("y", "yes"):
+                print("Nothing deleted.")
+                return []
+        ids = [r[0] for r in doomed]
+        print("Deleting and compacting (a minute or two for a large file) ...")
+        atlas_report.delete_runs(db, ids)
+    finally:
+        db.close()
+    print(f"Deleted run(s) {', '.join(str(i) for i in ids)}; kept {', '.join(str(r[0]) for r in kept)}.  "
+          f"{path} is now {os.path.getsize(path) / 1e6:,.1f} MB.")
+    return ids
+
+
+def prune_hint(path=None):
+    """The line the canon-wide rerun prints when the file holds three runs or more, or ''."""
+    path = path or RESULTS_PATH
+    try:
+        db = sqlite3.connect("file:" + path.replace("\\", "/") + "?mode=ro", uri=True)
+        n = db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        db.close()
+    except sqlite3.Error:
+        return ""
+    if n <= KEEP_RUNS:
+        return ""
+    return (f"reports/results.db now holds {n} runs ({os.path.getsize(path) / 1e6:,.0f} MB).  Only the newest two "
+            f"are needed for  atlas_results.py diff;  python3 atlas_results.py prune  deletes the older ones "
+            f"and shrinks the file.")
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -546,6 +617,7 @@ def main(argv):
     run = None
     out_name = None
     seed = 1
+    keep, yes = KEEP_RUNS, False
     rest = []
     i = 0
     while i < len(args):
@@ -555,8 +627,17 @@ def main(argv):
             out_name = args[i + 1]; i += 2; continue
         if args[i] == "--seed" and i + 1 < len(args):
             seed = int(args[i + 1]); i += 2; continue
+        if args[i] == "--keep" and i + 1 < len(args):
+            keep = int(args[i + 1]); i += 2; continue
+        if args[i] == "--yes":
+            yes = True; i += 1; continue
         rest.append(args[i]); i += 1
     command = rest[0].lower()
+    if command == "prune":
+        # Not a question of the data: it changes the file, and prints
+        # what it did rather than saving an answer
+        prune(keep=keep, yes=yes)
+        return
     db = connect()
     if run is None:
         run = latest_run(db)

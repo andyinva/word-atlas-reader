@@ -708,6 +708,32 @@ def ensure_results_schema(db, attribution_path=ATTRIBUTION_PATH):
     write_sources(db, attribution_path)
 
 
+def delete_runs(db, run_ids, vacuum=True):
+    """
+    Delete the given runs from a results file, with their pages and the
+    pages' sections, cells, refs and footers, then (by default) VACUUM
+    so the file gives the space back.  The heat rows, sources and
+    schema_notes belong to no run and are left.  Used by
+    atlas_results.py prune and by atlas_pack.py's one-run pack.
+    """
+    run_ids = list(run_ids)
+    if not run_ids:
+        return
+    marks = ",".join("?" * len(run_ids))
+    pages = f"SELECT page_id FROM pages WHERE run_id IN ({marks})"
+    sections = f"SELECT section_id FROM sections WHERE page_id IN ({pages})"
+    # The rows hang from sections, sections from pages, pages from runs:
+    # removed from the bottom up
+    for table in ("cells", "refs", "footers"):
+        db.execute(f"DELETE FROM {table} WHERE section_id IN ({sections})", run_ids)
+    db.execute(f"DELETE FROM sections WHERE page_id IN ({pages})", run_ids)
+    db.execute(f"DELETE FROM pages WHERE run_id IN ({marks})", run_ids)
+    db.execute(f"DELETE FROM runs WHERE run_id IN ({marks})", run_ids)
+    db.commit()
+    if vacuum:
+        db.execute("VACUUM")
+
+
 def results_path():
     """reports/results.db beside the program, where the dossier and the heat runs write."""
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports", "results.db")

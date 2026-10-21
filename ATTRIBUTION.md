@@ -1,5 +1,7 @@
 # Attribution and licenses
 
+Because the packed dataset carries the Septuagint layer, whose license (CC BY-NC-SA 4.0) forbids commercial use, the packed dataset as a whole is distributed for non-commercial use only.
+
 Word Atlas counts words. The words, the tags, the cross references and the links it counts come from other people's work, listed here with the license each is used under and the form of credit each asks for. The same list travels with every packed dataset (the `sources` table in results.db and in the .wadb the Word Atlas Reader opens), so that a reader of the numbers can see where they came from without this repository.
 
 Where a dataset was adapted, the adaptation is Word Atlas's: a count, a reduced table or a derived pair is not the source's own statement and should not be cited as such.
