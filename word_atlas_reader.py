@@ -31,9 +31,10 @@ import os
 import re
 import signal
 import sys
+import textwrap
 import time
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut, QTextCursor
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -53,7 +54,7 @@ import reader_questions
 from reader_tools import ToolsTab
 from reader_heat import HeatTab
 
-VERSION = "0.3.15"
+VERSION = "0.3.16"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -252,6 +253,50 @@ class QuestionsDialog(QDialog):
 # The window
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# The page text with its prose folded to the pane (0.3.16)
+# ---------------------------------------------------------------------------
+
+def prose_lines(report, atlas=None):
+    """
+    The lines of a rendered page that are prose, not table rows: the
+    build line, the notes under the title, each section's note and its
+    footers.  These are the lines folded to the pane; a table row is
+    never in the set, so the columns keep their places.
+    """
+    lines = set()
+    if atlas is not None:
+        lines.add(atlas.build_line())
+    for note in report.notes:
+        lines.update(note.split("\n"))
+    for sec in report.sections:
+        if sec.note:
+            lines.update(sec.note.split("\n"))
+        for footer in sec.footer:
+            lines.update(footer.split("\n"))
+    lines.discard("")
+    return lines
+
+
+def fold_prose(text, prose, width):
+    """
+    The page text with every prose line longer than width characters
+    folded at the spaces to that width, the table rows left as they are.
+    Returns (the folded text, for each folded line the number of the
+    line of the original it came from), the second for keeping the
+    reader's place when the pane is resized.  The words are not changed.
+    """
+    out, source = [], []
+    for number, line in enumerate(text.split("\n")):
+        if len(line) > width and line in prose:
+            parts = textwrap.wrap(line, width, break_long_words=False, break_on_hyphens=False) or [line]
+        else:
+            parts = [line]
+        out.extend(parts)
+        source.extend([number] * len(parts))
+    return "\n".join(out), source
+
+
 class ReaderWindow(QMainWindow):
     """The Reader's one window: pages on the left, views on the right."""
 
@@ -263,7 +308,11 @@ class ReaderWindow(QMainWindow):
         self.data = None            # the open Dataset
         self.run_id = None          # the run shown
         self.report = None          # the Report of the page shown
-        self.page_text = ""         # its rendered text
+        self.page_text = ""         # its rendered text, as the main program's file would hold it
+        self.page_prose = set()     # the lines of it that are prose (fold_prose)
+        self.shown_text = ""        # what the Page tab shows: page_text with its prose folded to the pane
+        self.shown_source = []      # for each shown line, the line of page_text it came from
+        self.fold_width = 0         # the width in characters the prose was last folded to
         self.worker = None          # the Claude question in flight, if any
         self.thread = None
         self._build_menus()
@@ -402,6 +451,14 @@ class ReaderWindow(QMainWindow):
         self.page_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.page_view.setProperty("help", "page_view")
         box.addWidget(self.page_view, 1)
+        # The notes, section notes and footers are folded to the pane's
+        # width and folded again when it is resized (a short pause first,
+        # so a drag of the window's edge folds once, at the end)
+        self.fold_timer = QTimer(self)
+        self.fold_timer.setSingleShot(True)
+        self.fold_timer.setInterval(120)
+        self.fold_timer.timeout.connect(self.refold_page)
+        self.page_view.viewport().installEventFilter(self)
         self.tabs.addTab(tab, "Page")
 
     def _build_table_tab(self):
@@ -584,9 +641,46 @@ class ReaderWindow(QMainWindow):
             self.question_edit.setPlainText(text)
 
     def set_wrap(self, on):
-        """Wrap the page text to the window, or keep it as the file lays it out."""
+        """
+        On, every long line wraps to the window, table rows too; off (the
+        usual way), the prose is folded to the pane and the tables keep
+        their columns, scrolling sideways when they are wider.
+        """
         mode = QPlainTextEdit.LineWrapMode.WidgetWidth if on else QPlainTextEdit.LineWrapMode.NoWrap
         self.page_view.setLineWrapMode(mode)
+        self.refold_page(force=True)
+
+    def pane_columns(self):
+        """How many characters of the page font fit across the Page tab's pane."""
+        metrics = self.page_view.fontMetrics()
+        char = max(1, metrics.horizontalAdvance("M"))
+        margin = 2 * int(self.page_view.document().documentMargin()) + 4
+        return max(40, (self.page_view.viewport().width() - margin) // char)
+
+    def refold_page(self, force=False):
+        """
+        Fold the page's prose to the pane's present width and show it,
+        keeping the line at the top of the pane at the top.  With the
+        wrap box ticked the text is shown as rendered and Qt wraps it all.
+        """
+        if not self.page_text:
+            return
+        width = 10 ** 6 if self.wrap_check.isChecked() else self.pane_columns()
+        if width == self.fold_width and not force:
+            return
+        # The line now at the top, as a line of the rendered page
+        top = self.page_view.cursorForPosition(QPoint(0, 0)).blockNumber()
+        top_source = self.shown_source[top] if 0 <= top < len(self.shown_source) else 0
+        self.fold_width = width
+        self.shown_text, self.shown_source = fold_prose(self.page_text, self.page_prose, width)
+        self.page_view.setPlainText(self.shown_text)
+        line = next((i for i, n in enumerate(self.shown_source) if n >= top_source), 0)
+        self.page_view.verticalScrollBar().setValue(line)
+
+    def eventFilter(self, obj, event):
+        if obj is self.page_view.viewport() and event.type() == QEvent.Type.Resize:
+            self.fold_timer.start()
+        return super().eventFilter(obj, event)
 
     # --- opening a file ------------------------------------------------------------
     def open_at_start(self, named=None):
@@ -757,12 +851,16 @@ class ReaderWindow(QMainWindow):
     def show_page(self, page_id, section_number=None):
         """Render the page, fill the section boxes, and jump to a section when asked."""
         self.report = self.data.report(page_id)
-        self.page_text = render(self.report, atlas=self.data.build_of(self.run_id))
+        atlas = self.data.build_of(self.run_id)
+        self.page_text = render(self.report, atlas=atlas)
+        self.page_prose = prose_lines(self.report, atlas)
         # A book's page brings the same book up on the Heat tab
         book = re.match(r"Book page \[(.+?)\]", self.report.title)
         if book:
             self.heat_tab.show_book(book.group(1))
-        self.page_view.setPlainText(self.page_text)
+        self.fold_width = 0                     # fold afresh for the new page
+        self.shown_source = []
+        self.refold_page(force=True)
         self.jump_box.blockSignals(True)
         self.table_box.blockSignals(True)
         self.jump_box.clear()
@@ -788,13 +886,14 @@ class ReaderWindow(QMainWindow):
         if self.report is None or index < 0 or index >= len(self.report.sections):
             return
         title = self.report.sections[index].title
-        pos = self.page_text.find("\n" + title + "\n")
+        # Found in the text as shown, its prose folded to the pane
+        pos = self.shown_text.find("\n" + title + "\n")
         if pos < 0:
             return
         # Scroll so the title's line is the first one shown: the line
         # number is the count of newlines before it, and the vertical
         # scroll bar of a plain text view counts in lines
-        line = self.page_text.count("\n", 0, pos + 1)
+        line = self.shown_text.count("\n", 0, pos + 1)
         cursor = self.page_view.textCursor()
         cursor.setPosition(pos + 1)
         self.page_view.setTextCursor(cursor)

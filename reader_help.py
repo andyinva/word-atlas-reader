@@ -83,9 +83,9 @@ HELP = {
                      "report is saved as install_report.txt in the install folder: the file to send when asking "
                      "for help.",
     "jump": "Jump to a section of the page: the text scrolls so that section's title is at the top.",
-    "wrap": "Wrap long lines in the page text.  Off, the page is exactly as the main program's text file lays "
-            "it out, and tables keep their columns; on, the long note lines fold to the window's width "
-            "and tables may fold too.",
+    "wrap": "Wrap every long line in the page text, table rows too.  Off (the usual way), the notes, the "
+            "section notes and the footers fold to the pane's width and the tables keep their columns, "
+            "scrolling sideways when wider than the pane; on, everything folds to the window.",
     "page_view": "The page as text, laid out by the same code the main program uses for its reports/*.txt "
                  "files: the title, the build line, the notes, then each section with its note, table and "
                  "footer.  File > Save page as text writes it out.",

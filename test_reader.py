@@ -363,7 +363,7 @@ def _():
     # Jump puts the section's title on the first line shown
     w.jump_to_section(3)
     top = w.page_view.verticalScrollBar().value()
-    assert w.page_text.split("\n")[top] == w.report.sections[3].title
+    assert w.shown_text.split("\n")[top] == w.report.sections[3].title
     w.wrap_check.setChecked(True)
     assert w.page_view.lineWrapMode() == R.QPlainTextEdit.LineWrapMode.WidgetWidth
     w.close()
@@ -481,6 +481,50 @@ def _():
 
 
 # --- the credits page -----------------------------------------------------------------------
+@test("the Page tab folds the notes and footers to the pane, keeps table rows whole, and saves the page as rendered")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    import word_atlas_reader as R
+    app = QApplication.instance() or QApplication(sys.argv)
+    w = R.ReaderWindow()
+    try:
+        assert w.open_path(SAMPLE)
+        # The sample's first book page, in a narrow pane
+        item = w.page_tree.topLevelItem(0).child(0)
+        w.resize(700, 700)
+        w.show()
+        app.processEvents()
+        w.show_page(item.data(0, R.Qt.ItemDataRole.UserRole))
+        w.refold_page(force=True)
+        width = w.pane_columns()
+        raw = w.page_text.split("\n")
+        shown = w.shown_text.split("\n")
+        long_prose = [l for l in raw if l in w.page_prose and len(l) > width]
+        assert long_prose, "the sample page has no prose wider than the pane"
+        # Every prose line now fits, and its words are all still there, in order
+        for i, line in enumerate(shown):
+            if raw[w.shown_source[i]] in w.page_prose:
+                assert len(line) <= width or " " not in line, (len(line), width, line[:60])
+        assert " ".join(w.shown_text.split()) == " ".join(w.page_text.split())
+        # A table row is never folded: every line not prose is shown exactly as rendered
+        table_rows = [l for l in raw if l not in w.page_prose]
+        assert all(l in shown for l in table_rows)
+        # Saved and given to Claude as rendered, not as folded
+        assert w.page_text == R.render(w.report, atlas=w.data.build_of(w.run_id))
+        # A wider pane folds them again, to fewer lines
+        before = len(shown)
+        w.resize(1600, 700)
+        app.processEvents()
+        w.refold_page()
+        assert len(w.shown_text.split("\n")) < before
+        # The jump still puts the section's title at the top
+        w.jump_to_section(2)
+        top = w.page_view.verticalScrollBar().value()
+        assert w.shown_text.split("\n")[top] == w.report.sections[2].title
+    finally:
+        w.close()
+
+
 @test("the credits page names the sources a dataset draws on, and only those")
 def _():
     from PyQt6.QtWidgets import QApplication

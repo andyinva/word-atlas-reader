@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.15. Andrew Hopkins, with Claude.
+Version 0.3.16. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -441,6 +441,13 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.16: on the Page tab the notes under the title, each section's note
+and the footers fold to the pane's width (they had run off the right
+edge), and fold again when the window is resized; table rows are never
+folded and keep their columns. Save as text and Ask Claude still get
+the page exactly as rendered. "Wrap long lines" now folds everything,
+table rows too.
 
 0.3.15: while a dataset downloads or the tests run, the other Tools
 buttons wait (their lines had landed among the download's), with a
