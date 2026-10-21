@@ -155,6 +155,8 @@ class ToolsTab(QWidget):
         super().__init__(window)
         self.window = window            # the ReaderWindow: its open dataset, its run, its settings
         self.process = None             # the tests, while they run
+        self.tool_buttons = []          # every button down the left, so a long job can hold them (set_busy)
+        self.busy = None                # 'download' or 'tests' while one runs, else None
         row = QHBoxLayout(self)
         left = QVBoxLayout()
         row.addLayout(left)
@@ -240,10 +242,22 @@ class ToolsTab(QWidget):
         self.output.setProperty("help", "tools_output")
         right.addWidget(self.output, 1)
         foot = QHBoxLayout()
+        # Shown only while a download or the tests run: the other tools
+        # wait meanwhile, so their lines never land among the job's
+        self.busy_label = QLabel("")
+        self.busy_label.setProperty("help", "tools_busy")
+        foot.addWidget(self.busy_label)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setProperty("help", "tools_busy")
+        self.stop_button.setToolTip("Stop the download or the tests now running")
+        self.stop_button.clicked.connect(self.stop_busy)
+        self.stop_button.setVisible(False)
+        foot.addWidget(self.stop_button)
         foot.addStretch(1)
         clear = QPushButton("Clear")
         clear.clicked.connect(self.output.clear)
         foot.addWidget(clear)
+        self.clear_button = clear
         save = QPushButton("Save as text...")
         save.clicked.connect(self.save_output)
         foot.addWidget(save)
@@ -255,7 +269,34 @@ class ToolsTab(QWidget):
         button.setProperty("help", help_key)
         button.clicked.connect(slot)
         layout.addWidget(button)
+        self.tool_buttons.append(button)
         return button
+
+    # --- one long job at a time ---------------------------------------------------------------
+    def set_busy(self, job):
+        """
+        While a download or the tests run ('download' or 'tests'), hold
+        every button down the left and Clear, and show what is running
+        with a Stop button; set_busy(None) gives them back.  The job's
+        lines are then the only ones in the pane until it ends.
+        """
+        self.busy = job
+        for button in self.tool_buttons + [self.clear_button]:
+            button.setEnabled(job is None)
+        what = {"download": "Downloading a dataset", "tests": "The Reader's tests are running"}.get(job, "")
+        self.busy_label.setText(f"{what}; the other tools wait until it ends." if job else "")
+        self.stop_button.setVisible(job is not None)
+        self.stop_button.setEnabled(job is not None)
+
+    def stop_busy(self):
+        """The Stop button: stop whichever job is running."""
+        if self.busy == "download":
+            self.stop_download()
+            self.say("    stopping the download ...")
+        elif self.busy == "tests" and self.process is not None:
+            self.say("(tests stopped)")
+            self.process.kill()
+        self.stop_button.setEnabled(False)
 
     # --- printing -------------------------------------------------------------------------
     def say(self, text=""):
@@ -457,7 +498,7 @@ class ToolsTab(QWidget):
             QMessageBox.information(self, "Tests", "The tests are still running.")
             return
         self.heading(f"python3 test_reader.py   ({time.strftime('%H:%M:%S')})")
-        self.tests_button.setEnabled(False)
+        self.set_busy("tests")
         self.process = QProcess(self)
         self.process.setWorkingDirectory(HERE)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
@@ -467,12 +508,18 @@ class ToolsTab(QWidget):
         self.process.setProcessEnvironment(env)
         self.process.readyReadStandardOutput.connect(self._tests_output)
         self.process.finished.connect(self._tests_finished)
-        self.process.errorOccurred.connect(lambda err: self.say(f"(could not run: {err.name})"))
+        self.process.errorOccurred.connect(self._tests_error)
         python = sys.executable
         # Under pythonw.exe (no terminal) the tests would have nowhere to print
         if os.path.basename(python).lower() == "pythonw.exe":
             python = os.path.join(os.path.dirname(python), "python.exe")
         self.process.start(python, ["test_reader.py"])
+
+    def _tests_error(self, err):
+        self.say(f"(could not run: {err.name})")
+        # A process that never started sends no finished signal: give the buttons back here
+        if err == QProcess.ProcessError.FailedToStart:
+            self.set_busy(None)
 
     def _tests_output(self):
         text = bytes(self.process.readAllStandardOutput()).decode("utf-8", "replace")
@@ -483,7 +530,7 @@ class ToolsTab(QWidget):
     def _tests_finished(self, code, status):
         self._tests_output()
         self.say("The tests passed." if code == 0 else f"The tests ended with code {code}: see the FAIL lines above.")
-        self.tests_button.setEnabled(True)
+        self.set_busy(None)
 
     def guest_key(self):
         """Say what guest key this copy carries, and offer to write a new one."""
@@ -703,6 +750,7 @@ class ToolsTab(QWidget):
             state["finished"] = True
 
         self.say(f"Downloading {asset['name']} into {folder} ...")
+        self.set_busy("download")
         self.download_remove = remove_older
         self.download_thread = threading.Thread(target=work, daemon=True)
         self.download_thread.start()
@@ -720,6 +768,7 @@ class ToolsTab(QWidget):
         if not state["finished"]:
             return
         self.download_timer.stop()
+        self.set_busy(None)
         if state["error"]:
             self.say(f"The download did not finish: {state['error']}")
             return

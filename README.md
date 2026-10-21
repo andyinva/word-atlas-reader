@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.14. Andrew Hopkins, with Claude.
+Version 0.3.15. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -270,7 +270,8 @@ Tools tab's "Updates from GitHub" group has:
 - **Check for a newer dataset.** Looks at the repository's releases
   for the newest `.wadb`, downloads it into the Reader's `datasets`
   folder and opens it. Tick the box to remove the older datasets the
-  Reader keeps.
+  Reader keeps. While it downloads, the other Tools buttons wait and a
+  Stop button ends the download.
 
 **Publishing.** Push the Reader's code as usual; a new `VERSION` in
 `word_atlas_reader.py` is what tells installed copies an update is
@@ -440,6 +441,10 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.15: while a dataset downloads or the tests run, the other Tools
+buttons wait (their lines had landed among the download's), with a
+Stop button for the job and a line saying what is running.
 
 0.3.14: the About box shows the open dataset's sources table (Word Atlas
 0.10.103 and later), and the credits page lists it; Dataset details

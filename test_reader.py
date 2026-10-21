@@ -916,6 +916,55 @@ def _():
         reader_update.fetch, reader_update.download = real_fetch, real_download
 
 
+@test("while a dataset downloads the other Tools buttons wait, Stop ends it, and the buttons come back")
+def _():
+    import threading
+    from PyQt6.QtWidgets import QApplication
+    import reader_update
+    import word_atlas_reader
+    app = QApplication.instance() or QApplication(sys.argv)
+    real_fetch = reader_update.fetch_dataset
+    release = threading.Event()
+
+    def slow_fetch(asset, folder, progress=None, cancelled=None):
+        # Holds until the test lets it go, or until Stop is pressed
+        while not release.wait(0.02):
+            if cancelled and cancelled():
+                raise reader_update.UpdateError("the download was stopped")
+        raise reader_update.UpdateError("stand-in download, nothing written")
+    reader_update.fetch_dataset = slow_fetch
+    w = word_atlas_reader.ReaderWindow()
+    try:
+        t = w.tools_tab
+        asset = {"name": "x.wadb", "size": 10, "url": "u"}
+
+        def wait_until_done():
+            for _ in range(200):
+                app.processEvents()
+                if t.busy is None:
+                    return
+                time.sleep(0.02)
+            raise AssertionError("the download never ended")
+
+        t.start_download(asset, TEST_HOME, False)
+        assert t.busy == "download" and t.stop_button.isVisibleTo(t) and not t.details_button.isEnabled()
+        assert not any(b.isEnabled() for b in t.tool_buttons) and not t.clear_button.isEnabled()
+        assert "other tools wait" in t.busy_label.text()
+        t.stop_busy()
+        wait_until_done()
+        assert all(b.isEnabled() for b in t.tool_buttons) and not t.stop_button.isVisibleTo(t)
+        assert "The download did not finish: the download was stopped" in t.output.toPlainText()
+        # And a download that ends of itself gives them back too
+        t.start_download(asset, TEST_HOME, False)
+        release.set()
+        wait_until_done()
+        assert t.details_button.isEnabled() and t.busy_label.text() == ""
+    finally:
+        release.set()
+        reader_update.fetch_dataset = real_fetch
+        w.close()
+
+
 @test("a refused zip address falls back to the files one by one, in a zip of the same shape")
 def _():
     import json

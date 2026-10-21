@@ -134,6 +134,8 @@ HELP = {
                "passed on.  Help > Credits and licences shows it for the dataset that is open, and Help > About "
                "shows the sources table a dataset of Word Atlas 0.10.103 or later carries (license and credit "
                "line of each).",
+    "tools_busy": "While a dataset downloads or the Reader's tests run, the other Tools buttons wait, so their "
+                  "lines never land among the job's; Stop ends the job now running.",
     "tools_fetch": "Where Word Atlas is in the folder beside the Reader's: copy the newest dataset it has packed "
                    "(its reports folder) into the Reader's own datasets folder and open it.  The Reader then "
                    "reads its own copy, and that copy is what a USB drive made from the Reader carries.",
