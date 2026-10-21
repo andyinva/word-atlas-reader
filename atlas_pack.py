@@ -23,6 +23,10 @@ WHAT THE PACK HOLDS (0.10.101)
                        (written by every atlas_heat.py run;
                         python3 run_heat.py --all fills them for every book)
         schema_notes   what every table and column holds, in plain words
+        sources        the outside datasets the figures rest on, their
+                       licenses and credit lines (0.10.103), refreshed in
+                       the packed copy from ATTRIBUTION.md; the pack is
+                       refused when there are none to carry
     and, added to the packed copy only (results.db itself is not changed):
         passages, passage_ranges
                        the named passages of metadata.db and their ranges
@@ -53,6 +57,7 @@ PROGRAM_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_PATH = os.path.join(PROGRAM_DIR, "reports", "results.db")
 METADATA_PATH = os.path.join(PROGRAM_DIR, "metadata.db")
 SOURCE_PATH = os.path.join(PROGRAM_DIR, "atlas_source.db")
+ATTRIBUTION_PATH = atlas_report.ATTRIBUTION_PATH
 
 # The tables the pack adds to its copy, and where they come from
 PACK_TABLES = ["passages", "passage_ranges", "kjv_books", "kjv_verses", "kjv_tags"]
@@ -118,7 +123,7 @@ def add_reader_tables(db, metadata_path=METADATA_PATH, source_path=SOURCE_PATH):
 
 
 def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=False,
-         metadata_path=METADATA_PATH, source_path=SOURCE_PATH):
+         metadata_path=METADATA_PATH, source_path=SOURCE_PATH, attribution_path=ATTRIBUTION_PATH):
     """Write the archive and return its path."""
     if not os.path.exists(results_path):
         raise PackRefused(f"{results_path} not found: write it with  python3 atlas_query.py dossier all --results")
@@ -157,6 +162,23 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
         src.backup(copy)
         src.close()
         added = add_reader_tables(copy, metadata_path, source_path)
+        # The credits travel with the numbers: the sources table read
+        # afresh from ATTRIBUTION.md into the copy, and described in its
+        # schema_notes (an old-schema file packed for testing has none)
+        try:
+            n_sources = atlas_report.write_sources(copy, attribution_path)
+        except ValueError as e:
+            copy.close()
+            raise PackRefused(f"ATTRIBUTION.md's sources table could not be read: {e}")
+        if not n_sources:
+            copy.close()
+            raise PackRefused(f"No sources to carry: {attribution_path} is missing or has no '"
+                              f"{atlas_report.SOURCES_HEADING[3:]}'.  The pack carries the licenses and credit "
+                              f"lines of the data the figures rest on, so it is not made without them.")
+        if has_table(copy, "schema_notes"):
+            copy.executemany("INSERT OR REPLACE INTO schema_notes VALUES (?, ?, ?, ?)",
+                             [n for n in atlas_report.SCHEMA_NOTES if n[0] == "sources"])
+            copy.commit()
         tables = {name: copy.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
                   for (name,) in copy.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")}
         copy.close()
@@ -165,7 +187,7 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
             "program_version": VERSION,
             "packed": time.strftime("%Y-%m-%d %H:%M:%S"),
             "note": note,
-            "schema": "0.10.101" if new_schema else "before 0.10.101 (packed with --allow-old-schema, for testing)",
+            "schema": "0.10.103" if new_schema else "before 0.10.101 (packed with --allow-old-schema, for testing)",
             "runs": runs,
             "tables": tables,
         }
@@ -178,7 +200,7 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
     after = os.path.getsize(out_path)
     heat = tables.get("heat_windows", 0)
     print(f"Packed {len(runs)} run(s), {sum(r['pages'] for r in runs)} pages, {heat:,} heat windows, "
-          f"{added['passages']} passages, {added['kjv_verses']:,} King James verses: "
+          f"{added['passages']} passages, {added['kjv_verses']:,} King James verses, {n_sources} sources: "
           f"{before / 1e6:.1f} MB into {after / 1e6:.1f} MB at {out_path}")
     return out_path
 

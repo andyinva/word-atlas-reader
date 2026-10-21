@@ -760,6 +760,50 @@ def _():
         w.close()
 
 
+@test("the About box and the credits page show the sources table a 0.10.103 dataset carries")
+def _():
+    from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QTableWidget
+    import atlas_report
+    import reader_credits
+    app = QApplication.instance() or QApplication(sys.argv)
+    path = os.path.join(TEST_HOME, "sources_results.db")
+    make_heat_dataset(path)
+    md = os.path.join(TEST_HOME, "ATTRIBUTION.md")
+    with open(md, "w", encoding="utf-8") as f:
+        f.write("# Attribution\n\n## The sources table\n\n| Name | Supplies | License | Credit | Adapted |\n"
+                "| --- | --- | --- | --- | --- |\n"
+                "| OpenBible.info cross references | The listed column | CC BY | Cross references from OpenBible.info, CC BY. "
+                "| yes: counts of votes |\n"
+                "| King James Version (1769) | The text | Public domain | King James Version, public domain. | no: quoted |\n"
+                "\n## How to credit\n")
+    db = sqlite3.connect(path)
+    assert atlas_report.write_sources(db, md) == 2
+    db.close()
+    import word_atlas_reader
+    real_exec = QDialog.exec
+    QDialog.exec = lambda self: 0          # the box is looked at, not waited on
+    w = word_atlas_reader.ReaderWindow()
+    try:
+        assert w.open_path(path)
+        assert [r["name"] for r in w.data.sources()] == ["OpenBible.info cross references", "King James Version (1769)"]
+        w.about()
+        table = w.about_dialog.findChild(QTableWidget, "about_sources")
+        assert table.rowCount() == 2 and table.item(0, 2).text() == "CC BY" and table.item(0, 4).text().startswith("yes")
+        text = reader_credits.credits_text(w.data.db, "sources_results.db")
+        assert "As this dataset records them" in text and "Credit:   Cross references from OpenBible.info, CC BY." in text
+        # An older dataset: no table, and the box says so
+        assert w.open_path(SAMPLE)
+        w.about()
+        table = w.about_dialog.findChild(QTableWidget, "about_sources")
+        assert table.rowCount() == 0 and not table.isVisibleTo(w.about_dialog)
+        labels = " ".join(label.text() for label in w.about_dialog.findChildren(QLabel))
+        assert "packed before Word Atlas 0.10.103" in labels, labels
+        assert "As this dataset records them" not in reader_credits.credits_text(w.data.db, "sample")
+    finally:
+        QDialog.exec = real_exec
+        w.close()
+
+
 # --- updates from GitHub, the install report, a built copy's drive (0.3.13) -----------------------
 def fake_reader_zip(path, version):
     """A zip shaped like GitHub's branch zip of the Reader: one top folder, program files, a subfolder."""

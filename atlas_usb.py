@@ -935,7 +935,10 @@ def readme_text(manifest):
               "  Scripture Knowledge.  lxx.db, when present, holds Rahlfs' Septuagint",
               "  (CC BY-NC-SA: pass it on with this credit and never for sale) and STEPBible's",
               "  TAGNT and TAHOT (Tyndale House Cambridge, CC BY 4.0).  The rabbinic links,",
-              "  when present, are derived from Sefaria's library (sefaria.org).",
+              "  when present, are derived from Sefaria's links (sefaria.org, CC BY).  The",
+              "  counts made from the cross references and the links are Word Atlas's",
+              "  adaptation, under CC BY.  ATTRIBUTION.md in Word Atlas's folder, and the",
+              "  Reader's About box, list every source with its license and credit line.",
               "",
               "The programs are released under the MIT licence.  Andrew Hopkins, with Claude.",
               ""]

@@ -36,7 +36,8 @@ import os
 import re
 import sqlite3
 
-CREDIT = "Cross references from OpenBible.info (built on the Treasury of Scripture Knowledge), CC BY."
+CREDIT = ("Cross references from OpenBible.info (built on the Treasury of Scripture Knowledge), CC BY; "
+          "the counts are Word Atlas's adaptation of it, under CC BY.")
 MIN_VOTES = 10          # a link with this many votes counts as well attested
 STRONG_VOTES = 100      # and with this many, as one of the best known
 NAME_MOST = 6           # how many missed links a footer names
@@ -47,7 +48,8 @@ NAME_MOST = 6           # how many missed links a footer names
 # figure is the number of passages that cite the two verses together
 # (a commentary on one citing the other, or a direct link, counted as
 # one passage each), which plays the part the Treasury's votes play.
-CITED_CREDIT = "Cited pairs derived from the links of Sefaria's library (sefaria.org)."
+CITED_CREDIT = ("Cited pairs derived from the links of Sefaria's library (sefaria.org), CC BY; the counts are "
+                "Word Atlas's adaptation of it, under CC BY.")
 CITED_MIN = 2           # a pair cited together in this many passages counts as attested
 CITED_STRONG = 10       # and in this many, as a tradition
 

@@ -81,6 +81,10 @@ Notes on the data:
   kjv_books, kjv_verses and kjv_tags (the King James text and its
   Strong's numbers).  schema_notes says in plain words what every table
   and column holds and its units: query it when a column is unclear.
+- In a dataset of Word Atlas 0.10.103 or later: sources (the outside
+  datasets the figures rest on: name, supplies, license, credit,
+  adapted).  When an answer rests on a column such as listed or cited,
+  give that source's credit line from this table with it.
 
 The tables most questions want, by sections.number (titles vary by book):
 - Book page: 1 signature words (keyness against the rest of the testament),

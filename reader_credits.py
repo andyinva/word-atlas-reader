@@ -43,6 +43,7 @@ SOURCES = [
       "concordance (1890), public domain.  The dictionary is from the strongs3 project, MIT licence."]),
     ("listed", "columns LIKE '%listed%'", "Cross references (the 'listed' column and its footers)",
      ["Cross references from OpenBible.info (built on the Treasury of Scripture Knowledge), CC BY.",
+      "The counts of listed links and of votes are Word Atlas's adaptation of it, under CC BY.",
       "https://www.openbible.info/labs/cross-references/"]),
     ("septuagint", "number IN ('1e', '1f', '4e', '4f') OR title LIKE '%Septuagint%'",
      "The Septuagint (tables 1e, 1f, 4e, 4f: counts and short Greek phrases)",
@@ -58,8 +59,10 @@ SOURCES = [
       "Credit STEP Bible, www.STEPBible.org; https://github.com/STEPBible/STEPBible-Data"]),
     ("cited", "columns LIKE '%cited%'", "The rabbinic library's citations (the 'cited' column and its footers)",
      ["Counts derived from the links of Sefaria's library, https://www.sefaria.org: how many passages of",
-      "the Mishnah, the Talmuds, the Midrash and the commentators cite two verses together.  References",
-      "and counts only; none of Sefaria's texts is included.  This project is not affiliated with Sefaria."]),
+      "the Mishnah, the Talmuds, the Midrash and the commentators cite two verses together.  The links are",
+      "used under CC BY, by permission of Sefaria's developer team (October 2026); the counts are Word",
+      "Atlas's adaptation of them, under CC BY.  References and counts only; none of Sefaria's texts is",
+      "included.  Sefaria's name marks the source of the links; this project is not affiliated with Sefaria."]),
     ("translations", "columns LIKE '%translations%'",
      "Other English translations (the 'translations' and 'families' columns)",
      ["How many of the older English translations keep an echo the King James finds by wording.  All",
@@ -131,6 +134,19 @@ def sources_in(db):
     return found
 
 
+def recorded_sources(db):
+    """
+    The rows of the dataset's sources table (written by Word Atlas
+    0.10.103 and later from its ATTRIBUTION.md) as dicts, or [] for an
+    older dataset.
+    """
+    try:
+        rows = db.execute("SELECT name, supplies, license, credit, adapted FROM sources ORDER BY position").fetchall()
+    except sqlite3.Error:
+        return []
+    return [dict(zip(("name", "supplies", "license", "credit", "adapted"), r)) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # The page
 # ---------------------------------------------------------------------------
@@ -159,6 +175,19 @@ def credits_text(db=None, dataset_name=""):
         lines.append(name)
         lines += ["    " + c for c in credit]
         lines.append("")
+    recorded = recorded_sources(db) if db is not None else []
+    if recorded:
+        # The dataset's own sources table (Word Atlas 0.10.103 or later),
+        # copied from ATTRIBUTION.md when it was packed: the list that
+        # travels with these numbers, in the words the atlas gave it
+        lines += ["As this dataset records them (its sources table)", "-" * 48]
+        for row in recorded:
+            lines.append(row["name"])
+            lines.append(f"    Supplies: {row['supplies']}")
+            lines.append(f"    License:  {row['license']}")
+            lines.append(f"    Credit:   {row['credit']}")
+            lines.append(f"    Adapted:  {row['adapted']}")
+            lines.append("")
     lines += ["The programs", "------------"] + PROGRAMS + [""]
     lines += ["Passing it on", "-------------"] + PASSING_ON + [""]
     return "\n".join(lines)

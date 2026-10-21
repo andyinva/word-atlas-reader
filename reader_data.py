@@ -417,6 +417,22 @@ class Dataset:
     def has_kjv(self):
         return self._has("kjv_books", "kjv_verses", "kjv_tags")
 
+    # --- the sources (0.10.103) ------------------------------------------
+    # A dataset packed by Word Atlas 0.10.103 or later carries a sources
+    # table: the outside datasets its figures rest on, the license of
+    # each and the credit line it asks for, copied from ATTRIBUTION.md.
+    SOURCE_COLUMNS = ("name", "supplies", "license", "credit", "adapted")
+
+    def has_sources(self):
+        return self._has("sources")
+
+    def sources(self):
+        """The sources table's rows as dicts in its order, or [] for a dataset packed before 0.10.103."""
+        if not self.has_sources():
+            return []
+        rows = self.db.execute("SELECT name, supplies, license, credit, adapted FROM sources ORDER BY position")
+        return [dict(zip(self.SOURCE_COLUMNS, row)) for row in rows]
+
     def heat_books(self):
         """The books with heat rows, in Bible order when the file holds the King James books."""
         if not self.has_heat():

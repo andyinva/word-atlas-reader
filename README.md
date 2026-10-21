@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.13. Andrew Hopkins, with Claude.
+Version 0.3.14. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -292,12 +292,23 @@ Strong's numbers (public domain), the Strong's dictionary (MIT), the
 cross references from OpenBible.info (CC BY), Rahlfs' Septuagint
 (CC BY-NC-SA: with its credit, never for sale), STEPBible's Greek New
 Testament, Hebrew Bible and verse maps (CC BY), the counts derived
-from Sefaria's links, the older English translations (counts only),
+from Sefaria's links (CC BY, by Sefaria's permission; the counts made
+from the cross references and the links are Word Atlas's adaptation,
+under CC BY), the older English translations (counts only),
 and the programs themselves (MIT, on Python, Qt and PyQt6). With a
 dataset open the page begins by saying which of those sources that
 dataset draws on, found from its own tables, so a dataset packed
 without the Greek layer does not credit the Septuagint. Save as text
 and Copy are on the page.
+
+**The sources table (0.3.14).** A dataset packed by Word Atlas 0.10.103
+or later carries a `sources` table, copied from ATTRIBUTION.md (in this
+folder and in Word Atlas's): one row per outside dataset with what it
+supplies, its license, the credit line it asks for, and whether the
+figures are an adaptation of it. **Help > About** shows it as a table,
+with Copy and a button to the credits page; the credits page adds the
+same rows under "As this dataset records them". An older dataset has no
+such table, and the About box says so.
 
 The same page prints from a terminal with `python3 reader_credits.py`
 (add a dataset's name for that dataset's credits), and a zip made on
@@ -429,6 +440,12 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.14: the About box shows the open dataset's sources table (Word Atlas
+0.10.103 and later), and the credits page lists it; Dataset details
+counts it and the Claude panel is told of it. ATTRIBUTION.md copied
+in; atlas_report.py, atlas_pack.py, atlas_listed.py and atlas_usb.py
+copied over from Word Atlas 0.10.103.
 
 0.3.13: updates from GitHub (reader_update.py; Tools tab, "Updates
 from GitHub"): a newer Reader replaces this copy's program files with

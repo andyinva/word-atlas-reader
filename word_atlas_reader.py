@@ -53,7 +53,7 @@ import reader_questions
 from reader_tools import ToolsTab
 from reader_heat import HeatTab
 
-VERSION = "0.3.13"
+VERSION = "0.3.14"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -1088,10 +1088,70 @@ class ReaderWindow(QMainWindow):
         dialog.exec()
 
     def about(self):
-        QMessageBox.about(self, "Word Atlas Reader",
-                          f"Word Atlas Reader {VERSION}\n\nA viewer for the results a Word Atlas run wrote: "
-                          "every page, every table, every figure, in one file.\n\nAndrew Hopkins, with Claude.\n\n"
-                          "Help > Credits and licences names the sources the dataset rests on.")
+        """
+        The About box: the program, and the sources table the open
+        dataset carries (Word Atlas 0.10.103 and later copy it from
+        ATTRIBUTION.md into every pack), one row per outside dataset
+        with its license, the credit line it asks for and whether the
+        figures are an adaptation of it.  An older dataset has no such
+        table; the box then says so and points to the credits page.
+        """
+        dialog = QDialog(self)
+        dialog.setObjectName("about_dialog")
+        dialog.setWindowTitle("About Word Atlas Reader")
+        dialog.resize(980, 560)
+        box = QVBoxLayout(dialog)
+        intro = QLabel(f"<b>Word Atlas Reader {VERSION}</b><br>A viewer for the results a Word Atlas run wrote: "
+                       "every page, every table, every figure, in one file.<br>Andrew Hopkins, with Claude.")
+        intro.setWordWrap(True)
+        box.addWidget(intro)
+        rows = self.data.sources() if self.data is not None else []
+        name = os.path.basename(self.data.source_path) if self.data is not None else ""
+        if rows:
+            label = QLabel(f"The data the figures in {name} rest on, as the dataset records it.  Give a "
+                           "source's credit line with any figure that rests on it.")
+        elif self.data is not None:
+            label = QLabel(f"{name} was packed before Word Atlas 0.10.103 and carries no sources table.  "
+                           "Credits and licences names the sources it rests on.")
+        else:
+            label = QLabel("No dataset is open.  Open one to see the sources its figures rest on.")
+        label.setWordWrap(True)
+        box.addWidget(label)
+        headers = ["Name", "Supplies", "License", "Credit", "Adapted"]
+        table = QTableWidget(len(rows), len(headers))
+        table.setObjectName("about_sources")
+        table.setHorizontalHeaderLabels(headers)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setWordWrap(True)
+        table.verticalHeader().setVisible(False)
+        for r, row in enumerate(rows):
+            for c, key in enumerate(("name", "supplies", "license", "credit", "adapted")):
+                item = QTableWidgetItem(row[key])
+                item.setToolTip(row[key])
+                table.setItem(r, c, item)
+        # Name and License narrow, the three wordy columns sharing the rest
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for c, width in enumerate((170, 200, 170, 260, 160)):
+            table.setColumnWidth(c, width)
+        header.setStretchLastSection(True)
+        table.resizeRowsToContents()
+        table.setVisible(bool(rows))
+        box.addWidget(table, 1)
+        # The same rows as plain text, for the Copy button
+        text = "\n\n".join("\n".join(f"{h}: {row[k]}" for h, k in zip(headers, ("name", "supplies", "license",
+                                                                               "credit", "adapted")))
+                           for row in rows)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        credits = buttons.addButton("Credits and licences...", QDialogButtonBox.ButtonRole.ActionRole)
+        credits.clicked.connect(self.credits)
+        if rows:
+            copy = buttons.addButton("Copy", QDialogButtonBox.ButtonRole.ActionRole)
+            copy.clicked.connect(lambda: QApplication.clipboard().setText(text))
+        buttons.rejected.connect(dialog.reject)
+        box.addWidget(buttons)
+        self.about_dialog = dialog          # kept so a test can look at it
+        dialog.exec()
 
     def closeEvent(self, event):
         # The help mode's filter sits on the application, not the window,

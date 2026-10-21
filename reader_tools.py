@@ -308,7 +308,7 @@ class ToolsTab(QWidget):
         present = {r[0] for r in data.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         for table in ("runs", "pages", "sections", "cells", "refs", "footers", "heat_strips", "heat_windows",
                       "heat_spots", "passages", "passage_ranges", "kjv_books", "kjv_verses", "kjv_tags",
-                      "schema_notes"):
+                      "sources", "schema_notes"):
             if table not in present:
                 continue
             n = data.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

@@ -468,6 +468,21 @@ CREATE INDEX IF NOT EXISTS idx_kjv_verses ON kjv_verses (book_num, chapter, vers
 CREATE INDEX IF NOT EXISTS idx_kjv_tags ON kjv_tags (verse_id);
 """
 
+# The outside datasets the figures rest on, one row each, copied from
+# the table at the end of ATTRIBUTION.md (read_attribution below) every
+# time the results file is opened for writing, and carried in the pack,
+# so the credit travels with the numbers (0.10.103)
+SOURCES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sources (
+    position    INTEGER PRIMARY KEY,     -- the row's place in ATTRIBUTION.md's table
+    name        TEXT NOT NULL,           -- the dataset
+    supplies    TEXT NOT NULL,           -- what it supplies to the atlas
+    license     TEXT NOT NULL,           -- the license it is used under
+    credit      TEXT NOT NULL,           -- the credit line it asks for
+    adapted     TEXT NOT NULL            -- 'yes: what was made' or 'no: why not'
+);
+"""
+
 SCHEMA_NOTES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_notes (
     table_name  TEXT NOT NULL,
@@ -595,6 +610,15 @@ SCHEMA_NOTES = [
     ("kjv_tags", "strongs", "The Strong's number: H3701, G3056.", "Strong's number"),
     ("kjv_tags", "morphology", "The tag's grammar code, where the source gives one.", "code"),
     ("kjv_tags", "word", "The English word or words the number is tagged on.", "text"),
+    ("sources", "", "The outside datasets the figures rest on, with the license and the credit each asks for, "
+                    "copied from the table at the end of ATTRIBUTION.md in the Word Atlas folder.", ""),
+    ("sources", "position", "The row's place in that table.", "integer"),
+    ("sources", "name", "The dataset.", "text"),
+    ("sources", "supplies", "What it supplies to the atlas: a text, a column, a table, a footer.", "text"),
+    ("sources", "license", "The license it is used under.", "text"),
+    ("sources", "credit", "The credit line it asks for, to be given with any figure resting on it.", "text"),
+    ("sources", "adapted", "Whether the atlas's figures are an adaptation of it (counts, reduced tables, derived pairs "
+                           "or maps): 'yes' and what was made, or 'no' and why not.", "text"),
     ("schema_notes", "", "This table: what every table and column of the file holds, in plain words.", ""),
     ("schema_notes", "table_name", "The table.", "text"),
     ("schema_notes", "column_name", "The column, or empty for the table as a whole.", "text"),
@@ -603,17 +627,85 @@ SCHEMA_NOTES = [
 ]
 
 
-def ensure_results_schema(db):
+ATTRIBUTION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ATTRIBUTION.md")
+SOURCES_HEADING = "## The sources table"
+SOURCES_COLUMNS = ["name", "supplies", "license", "credit", "adapted"]
+
+
+def read_attribution(path=ATTRIBUTION_PATH):
+    """
+    The rows of the sources table at the end of ATTRIBUTION.md: a list
+    of (name, supplies, license, credit, adapted).  Only the Markdown
+    table under the heading '## The sources table' is read; the prose
+    above it is for people.  Returns [] when the file or the table is
+    not there.  A row with the wrong number of cells, or an 'adapted'
+    cell not beginning yes or no, raises ValueError naming the row, so
+    a slip in the file is caught when the results are written rather
+    than shipped.
+    """
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    rows, inside, header_seen = [], False, False
+    for number, line in enumerate(lines, 1):
+        if line.strip() == SOURCES_HEADING:
+            inside = True
+            continue
+        if not inside:
+            continue
+        if line.startswith("## "):
+            break                                   # the next section: the table is over
+        text = line.strip()
+        if not text.startswith("|"):
+            if rows:
+                break                               # the first line after the table
+            continue
+        cells = [c.strip() for c in text.strip("|").split("|")]
+        if not header_seen:
+            header_seen = True                      # | Name | Supplies | ... |
+            continue
+        if all(set(c) <= set("-: ") for c in cells):
+            continue                                # | --- | --- | ... |
+        if len(cells) != len(SOURCES_COLUMNS):
+            raise ValueError(f"{path} line {number}: {len(cells)} cells, the sources table has "
+                             f"{len(SOURCES_COLUMNS)} ({', '.join(SOURCES_COLUMNS)})")
+        if not cells[4].lower().startswith(("yes", "no")):
+            raise ValueError(f"{path} line {number}: the 'adapted' cell must begin with yes or no")
+        rows.append(tuple(cells))
+    return rows
+
+
+def write_sources(db, path=ATTRIBUTION_PATH):
+    """
+    Fill the sources table from ATTRIBUTION.md, replacing what was
+    there.  When the file is missing (a copy of the program without it)
+    the rows already in the table are left as they are.  Returns the
+    number of rows the table holds.
+    """
+    db.executescript(SOURCES_SCHEMA)
+    rows = read_attribution(path)
+    if rows:
+        db.execute("DELETE FROM sources")
+        db.executemany("INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?)",
+                       [(i + 1,) + row for i, row in enumerate(rows)])
+    db.commit()
+    return db.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+
+
+def ensure_results_schema(db, attribution_path=ATTRIBUTION_PATH):
     """
     Create every table of the results file that is missing (the pages,
-    the heat tables, schema_notes) and write schema_notes afresh, so a
-    file written by any part of the program describes itself.  The
-    pack's own tables (passages, the King James text) are added by
+    the heat tables, sources, schema_notes), write schema_notes afresh
+    and the sources from ATTRIBUTION.md, so a file written by any part
+    of the program describes itself and names whose data it rests on.
+    The pack's own tables (passages, the King James text) are added by
     atlas_pack.py to the packed copy only.
     """
-    db.executescript(RESULTS_SCHEMA + HEAT_SCHEMA + SCHEMA_NOTES_SCHEMA)
+    db.executescript(RESULTS_SCHEMA + HEAT_SCHEMA + SOURCES_SCHEMA + SCHEMA_NOTES_SCHEMA)
     db.executemany("INSERT OR REPLACE INTO schema_notes VALUES (?, ?, ?, ?)", SCHEMA_NOTES)
     db.commit()
+    write_sources(db, attribution_path)
 
 
 def results_path():
