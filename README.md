@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.16. Andrew Hopkins, with Claude.
+Version 0.3.17. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -441,6 +441,12 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.17: the window fits a smaller screen: the Run and Search boxes
+take the room the top row gives them instead of the width of their
+longest entry (the drop-down still shows each in full), and the long
+sentences on the Ask Claude and Results tabs wrap. The window's least
+width came down from about 1,050 pixels to about 770.
 
 0.3.16: on the Page tab the notes under the title, each section's note
 and the footers fold to the pane's width (they had run off the right

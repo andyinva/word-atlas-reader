@@ -525,6 +525,36 @@ def _():
         w.close()
 
 
+@test("the window fits a 1000-pixel screen: no long label unwrapped, no button narrower than its label")
+def _():
+    from PyQt6.QtWidgets import QApplication, QLabel, QPushButton
+    import word_atlas_reader as R
+    app = QApplication.instance() or QApplication(sys.argv)
+    w = R.ReaderWindow()
+    try:
+        assert w.open_path(SAMPLE)
+        w.show()
+        app.processEvents()
+        # The run box's entries list every book of a run; it once set the window's least width at 1,052
+        least = w.minimumSizeHint().width()
+        assert least < 1000, least
+        longs = [l.text()[:40] for l in w.findChildren(QLabel)
+                 if not l.wordWrap() and l.fontMetrics().horizontalAdvance(l.text()) > 500]
+        assert not longs, longs
+        w.resize(least, 800)
+        squeezed = []
+        for i in range(w.tabs.count()):
+            w.tabs.setCurrentIndex(i)
+            app.processEvents()
+            squeezed += [b.text() for b in w.findChildren(QPushButton)
+                         if b.isVisible() and b.text() and b.minimumWidth() != b.maximumWidth()
+                         and b.width() < b.minimumSizeHint().width()]       # a fixed-width '?' is meant to be small
+        assert not squeezed, squeezed
+        return f"least width {least}"
+    finally:
+        w.close()
+
+
 @test("the credits page names the sources a dataset draws on, and only those")
 def _():
     from PyQt6.QtWidgets import QApplication

@@ -54,7 +54,7 @@ import reader_questions
 from reader_tools import ToolsTab
 from reader_heat import HeatTab
 
-VERSION = "0.3.16"
+VERSION = "0.3.17"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -362,6 +362,12 @@ class ReaderWindow(QMainWindow):
         self.run_box = QComboBox()
         self.run_box.setProperty("help", "run")
         self.run_box.currentIndexChanged.connect(self.run_changed)
+        # Its entries are long (the run's notes list every book): the box
+        # takes the room the row has, not the width of its longest entry,
+        # which had set the whole window's least width; the drop-down shows
+        # each entry in full
+        self.run_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.run_box.setMinimumContentsLength(24)
         bar.addWidget(self.run_box, 2)
         bar.addSpacing(20)
         bar.addWidget(QLabel("Search every cell:"))
@@ -370,6 +376,9 @@ class ReaderWindow(QMainWindow):
         self.search_box.setEditable(True)
         self.search_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.search_box.setProperty("help", "search")
+        # Likewise: a long earlier search does not widen the window
+        self.search_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.search_box.setMinimumContentsLength(20)
         self.search_edit = self.search_box.lineEdit()
         self.search_edit.setPlaceholderText("a word, a Strong's number, a phrase ...")
         self.search_edit.returnPressed.connect(self.search)
@@ -515,7 +524,9 @@ class ReaderWindow(QMainWindow):
     def _build_results_tab(self):
         tab = QWidget()
         box = QVBoxLayout(tab)
-        box.addWidget(QLabel("The Results menu asks the questions atlas_results.py asks; the answer prints here."))
+        results_intro = QLabel("The Results menu asks the questions atlas_results.py asks; the answer prints here.")
+        results_intro.setWordWrap(True)
+        box.addWidget(results_intro)
         self.results_view = QPlainTextEdit()
         self.results_view.setReadOnly(True)
         self.results_view.setFont(mono_font())
@@ -538,7 +549,10 @@ class ReaderWindow(QMainWindow):
         else:
             heading = ("Ask a question of the dataset.  Claude answers by running read-only SQL "
                        "queries against it with your own API key (File > Claude settings).")
-        box.addWidget(QLabel(heading))
+        # Wrapped: unwrapped, this one sentence set the whole window's least width
+        intro = QLabel(heading)
+        intro.setWordWrap(True)
+        box.addWidget(intro)
         # Earlier questions in a drop-down; choosing one puts it back in the box
         row = QHBoxLayout()
         row.addWidget(QLabel("Past questions:"))
