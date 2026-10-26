@@ -78,7 +78,9 @@ class Section:
         # text renderer prints every kind as a table; the window draws
         # "heatmap" (rows x columns of numbers, colour for size) and
         # "bars" (one bar per row from the column named value_column)
-        # as pictures, with the table beneath.
+        # as pictures, with the table beneath; "strip" is a theme's strip
+        # (atlas_pages.theme_page), drawn from the section's own .strip
+        # list of every chapter, with the table of chapters beneath.
         self.kind = kind
         self.value_column = None    # bars: which column holds the bar length
         self.cell_refs = {}         # heatmap: (row index, column index) -> verse refs
@@ -334,7 +336,7 @@ CREATE TABLE IF NOT EXISTS pages (
     run_id      INTEGER NOT NULL REFERENCES runs(run_id),
     name        TEXT NOT NULL,           -- the report's file-safe name
     title       TEXT NOT NULL,
-    kind        TEXT NOT NULL,           -- Book, Chapter, Section, Passage, Word, Kin, Testament, Compare
+    kind        TEXT NOT NULL,           -- Book, Chapter, Section, Passage, Word, Kin, Testament, Compare, Theme
     notes       TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sections (
@@ -483,6 +485,114 @@ CREATE TABLE IF NOT EXISTS sources (
 );
 """
 
+# The constellations (atlas_sets.py, 0.10.110): sets of two to five roots
+# that occur together in one stretch of text far more often than their
+# separate rates predict, with the stretches behind each set
+SETS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS word_sets (
+    set_id       INTEGER PRIMARY KEY,
+    run_id       INTEGER,                 -- the run it was written under (runs.run_id)
+    scope        TEXT NOT NULL,           -- Old, New, or a book name
+    norm         TEXT NOT NULL,           -- book (against the book itself) or testament (against its testament)
+    scale        TEXT NOT NULL,           -- window, verse or chapter
+    window_size  INTEGER NOT NULL,        -- verses per window; 1 for verse, 0 for chapter
+    size         INTEGER NOT NULL,        -- roots in the set, 2 to 5
+    roots        TEXT NOT NULL,           -- the Strong's numbers in canonical order, space-separated
+    words        TEXT NOT NULL,           -- their commonest King James spellings, for reading
+    support      INTEGER NOT NULL,        -- units the set occurs in
+    stretches    INTEGER NOT NULL,        -- those units joined where they follow one another
+    expected     REAL NOT NULL,           -- the support if the roots fell independently
+    lift         REAL NOT NULL,           -- support / expected
+    keyness      REAL NOT NULL,           -- Dunning's G2 of support against expected
+    phrase_units INTEGER NOT NULL,        -- units in which the roots stand inside one formula run
+    frame_units  INTEGER NOT NULL,        -- units in which they come in one order within twelve content words
+    in_order     REAL NOT NULL,           -- frame_units / support: the share of units in that order
+    kind         TEXT NOT NULL,           -- constellation, frame (three roots or more) or phrase
+    closed       INTEGER NOT NULL,        -- 1 when no larger kept set has the same support
+    folds        INTEGER NOT NULL,        -- for a closed set: how many smaller sets fold under it
+    parent       INTEGER,                 -- for a set that is not closed: the closed set it folds under
+    span         INTEGER NOT NULL,        -- chapters from the first stretch to the last
+    inclusio     INTEGER NOT NULL         -- 1 when every stretch lies at the two ends of the book
+);
+CREATE TABLE IF NOT EXISTS word_set_members (
+    set_id   INTEGER NOT NULL REFERENCES word_sets(set_id),
+    root     TEXT NOT NULL,
+    word     TEXT NOT NULL,
+    position INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS word_set_windows (
+    set_id        INTEGER NOT NULL REFERENCES word_sets(set_id),
+    book          TEXT NOT NULL,
+    start_chapter INTEGER NOT NULL,
+    start_verse   INTEGER NOT NULL,
+    end_chapter   INTEGER NOT NULL,
+    end_verse     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_word_sets_scope ON word_sets (run_id, scope, norm, scale, size, keyness);
+CREATE INDEX IF NOT EXISTS idx_word_set_members_root ON word_set_members (root);
+CREATE INDEX IF NOT EXISTS idx_word_set_windows_set ON word_set_windows (set_id);
+"""
+
+# The renderings layer (atlas_renderings.py, 0.10.113): how each public
+# domain English translation renders each Hebrew and Greek root, learned by
+# aligning it with the King James, and how far the translations stand apart
+# verse by verse.  Words and counts only, never text
+RENDERINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS renderings (
+    root        TEXT NOT NULL,            -- the Strong's number
+    word        TEXT NOT NULL,            -- the King James's commonest spelling of it, for reading
+    translation TEXT NOT NULL,            -- the translation's abbreviation (ASV, YLT ...)
+    rendering   TEXT NOT NULL,            -- the word the translation uses for it, as spelled; '(other)' for the rest
+    count       INTEGER NOT NULL,         -- tagged occurrences of the root rendered so
+    share       REAL NOT NULL,            -- count / the root's tagged occurrences in the translation
+    testament   TEXT NOT NULL             -- Old (a Hebrew root) or New (a Greek root)
+);
+CREATE TABLE IF NOT EXISTS renderings_summary (
+    root        TEXT NOT NULL,
+    translation TEXT NOT NULL,
+    leading     TEXT NOT NULL,            -- the translation's commonest rendering of the root
+    share       REAL NOT NULL,            -- its share
+    distinct_renderings INTEGER NOT NULL, -- how many different spellings render the root
+    renderings_folded INTEGER NOT NULL,   -- how many different words, endings and spellings folded
+    tagged      INTEGER NOT NULL,         -- the root's tagged occurrences in the translation
+    testament   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS renderings_translations (
+    translation TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    year        INTEGER,
+    verses      INTEGER NOT NULL,         -- verses it has
+    words       INTEGER NOT NULL,         -- its content words (stop words set aside)
+    tagged      INTEGER NOT NULL,         -- of them, those given a Strong's number through the alignment
+    share       REAL NOT NULL,            -- tagged / words: how far to trust its rows
+    pairs       INTEGER NOT NULL,         -- trusted pairings with the King James's words
+    made        TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS disagreement_verses (
+    reference    TEXT PRIMARY KEY,
+    book         TEXT NOT NULL,
+    chapter      INTEGER NOT NULL,
+    verse        INTEGER NOT NULL,
+    mean_distance REAL,                   -- mean Jaccard distance over every pair of translations having the verse
+    excess       REAL,                    -- the same less each pair's mean distance over the Bible: the crux order
+    present      INTEGER NOT NULL,        -- translations having the verse
+    expected     INTEGER NOT NULL,        -- translations having the book
+    missing      REAL NOT NULL,           -- the share lacking the verse (merged ones not counted)
+    merged       INTEGER NOT NULL,        -- translations holding the verse inside a neighbour (verse division)
+    merged_with  TEXT NOT NULL,           -- each as translation>neighbour verse ("JPS>3:33"), space-separated
+    names        INTEGER NOT NULL,        -- the King James's proper names in the verse, set aside from the distance
+    far_a        TEXT NOT NULL,           -- the two translations furthest apart on it
+    far_b        TEXT NOT NULL,
+    far_distance REAL,
+    outlier      TEXT NOT NULL,           -- the translation furthest beyond its usual distance from the rest
+    unique_words TEXT NOT NULL            -- content words no two translations share, space-separated
+);
+CREATE INDEX IF NOT EXISTS idx_renderings_root ON renderings (root, translation);
+CREATE INDEX IF NOT EXISTS idx_renderings_word ON renderings (rendering);
+CREATE INDEX IF NOT EXISTS idx_renderings_summary ON renderings_summary (translation, share);
+CREATE INDEX IF NOT EXISTS idx_disagreement ON disagreement_verses (excess);
+"""
+
 SCHEMA_NOTES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_notes (
     table_name  TEXT NOT NULL,
@@ -509,7 +619,7 @@ SCHEMA_NOTES = [
     ("pages", "run_id", "The run that wrote it (runs.run_id).", "integer"),
     ("pages", "name", "The page's file-safe name, as reports/<name>.txt would have it.", "text"),
     ("pages", "title", "The page's title as printed at its head.", "text"),
-    ("pages", "kind", "Book, Chapter, Section, Passage, Word, Kin, Testament or Compare.", "text"),
+    ("pages", "kind", "Book, Chapter, Section, Passage, Word, Kin, Testament, Compare or Theme.", "text"),
     ("pages", "notes", "The lines printed under the title, one per line.", "text"),
     ("sections", "", "One row per table on a page.", ""),
     ("sections", "section_id", "The table's number.", "integer"),
@@ -518,7 +628,7 @@ SCHEMA_NOTES = [
     ("sections", "number", "The section number as printed: 1, 1a, 4e, 7.2d, 7v.", "text"),
     ("sections", "title", "The section's title as printed.", "text"),
     ("sections", "note", "The note under the title: what the table is and how to read it, or why it declined.", "text"),
-    ("sections", "kind", "How a display draws it: table, heatmap, bars or scatter.", "text"),
+    ("sections", "kind", "How a display draws it: table, heatmap, bars, scatter or strip (a theme's strip).", "text"),
     ("sections", "columns", "The column names, separated by tabs.", "text"),
     ("sections", "n_rows", "How many rows the table has.", "count"),
     ("cells", "", "Every cell of every table, one row per cell.", ""),
@@ -624,6 +734,199 @@ SCHEMA_NOTES = [
     ("schema_notes", "column_name", "The column, or empty for the table as a whole.", "text"),
     ("schema_notes", "meaning", "What it holds.", "text"),
     ("schema_notes", "units", "Its units.", "text"),
+    ("theme", "", "One row per theme: a hand-made set of verses that belong together (themes/*.json), "
+                  "copied from atlas.db, where atlas_themes.py loaded it.", ""),
+    ("theme", "theme_id", "The theme's short id (land_inheritance).", "text"),
+    ("theme", "name", "The name the pages show (Land and inheritance).", "text"),
+    ("theme", "created", "When the theme file was made.", "date"),
+    ("theme", "source_file", "The verse list the theme was imported from.", "text"),
+    ("theme", "require_patterns", "The patterns every core verse holds, as a JSON list of regular expressions.", "JSON"),
+    ("theme", "home", "The home range as the file gives it: empty for the whole Bible, Old, New, books or passage:NAME.", "text"),
+    ("theme", "home_label", "The home range in words.", "text"),
+    ("theme", "cushion", "The cushion of the lift per chapter (2, as atlas_lift.py).", "verses"),
+    ("theme", "notes", "The theme's own notes.", "text"),
+    ("theme", "file", "The theme file in themes/.", "text"),
+    ("theme", "loaded", "When it was loaded into atlas.db.", "date and time"),
+    ("theme", "build", "The build it was loaded into: its label and date.", "text"),
+    ("theme", "n_core", "Its core verses.", "verses"),
+    ("theme", "n_borderline", "Its borderline verses.", "verses"),
+    ("theme", "n_excluded", "Its excluded verses.", "verses"),
+    ("theme", "n_chapters", "The chapters holding a counted verse.", "chapters"),
+    ("theme_verse", "", "Every verse of every theme with its role, in canonical order.", ""),
+    ("theme_verse", "theme_id", "The theme (theme.theme_id).", "text"),
+    ("theme_verse", "book", "The book.", "book name"),
+    ("theme_verse", "chapter", "The chapter.", "chapter"),
+    ("theme_verse", "verse", "The verse.", "verse"),
+    ("theme_verse", "reference", "The reference as the theme file has it (Deu 4:1).", "text"),
+    ("theme_verse", "verse_id", "The atlas verse it was matched to; empty when the atlas does not hold it.", "integer"),
+    ("theme_verse", "role", "core (the theme is about it), borderline (matches but stands apart) or excluded "
+                            "(a false match, never counted).", "text"),
+    ("theme_verse", "reason", "Why a verse is borderline or excluded.", "text"),
+    ("theme_verse", "source_refs", "The references as the verse list wrote them, a JSON list.", "JSON"),
+    ("theme_verse", "texts", "The texts the verse list gave, a JSON list.", "JSON"),
+    ("theme_verse", "position", "The verse's place in canonical order within its theme, from 0.", "integer"),
+    ("theme_verse", "text", "The King James text of the verse as the atlas holds it.", "text"),
+    ("theme_verse", "as_written", "The references as written, when the list used another numbering.", "text"),
+    ("theme_strip", "", "Every theme's strip: one row per chapter of the canon in order, with the counts, "
+                        "the lift per chapter and the colour to draw, all worked out by the main program.", ""),
+    ("theme_strip", "theme_id", "The theme (theme.theme_id).", "text"),
+    ("theme_strip", "position", "The chapter's place in canonical order: 0 is Genesis 1, 1188 Revelation 22.", "integer"),
+    ("theme_strip", "book", "The book.", "book name"),
+    ("theme_strip", "chapter", "The chapter.", "chapter"),
+    ("theme_strip", "chapter_verses", "The verses of the chapter.", "verses"),
+    ("theme_strip", "in_home", "1 when the chapter is in the theme's home range, 0 when not (drawn grey).", "0 or 1"),
+    ("theme_strip", "core", "The theme's core verses in the chapter.", "verses"),
+    ("theme_strip", "all_verses", "Core plus borderline verses in the chapter.", "verses"),
+    ("theme_strip", "expected_core", "The core verses the chapter would hold by chance: the theme's core verses in "
+                                     "the home range times the chapter's share of its verses.", "verses"),
+    ("theme_strip", "expected_all", "The same for core plus borderline.", "verses"),
+    ("theme_strip", "lift_core", "The lift per chapter: (core + cushion) / (expected_core + cushion); 1.0 is ordinary.", "ratio"),
+    ("theme_strip", "lift_all", "The same for core plus borderline.", "ratio"),
+    ("theme_strip", "section", "The chapter's section of its book (atlas_sections.py); empty when the book has none.", "text"),
+    ("theme_strip", "section_start", "1 when a section of the book begins at this chapter.", "0 or 1"),
+    ("theme_strip", "colour_core", "The cell's colour for core verses, ready to draw: grey outside the home range, "
+                                   "plain for none, else blue through grey to red by the lift.", "#rrggbb"),
+    ("theme_strip", "colour_all", "The same for core plus borderline.", "#rrggbb"),
+    ("theme_term", "", "A theme's companion terms, by Strong's number and root; not searched yet.", ""),
+    ("theme_term", "theme_id", "The theme.", "text"),
+    ("theme_term", "strongs", "The Strong's number (H5159, G2817).", "Strong's number"),
+    ("theme_term", "root", "The root, where it is not a Strong's number.", "text"),
+    ("theme_term", "note", "A note on the term.", "text"),
+    ("theme_problem", "", "References of a theme file the atlas could not place: reported, not counted.", ""),
+    ("theme_problem", "theme_id", "The theme.", "text"),
+    ("theme_problem", "reference", "The reference as the theme file has it.", "text"),
+    ("theme_problem", "problem", "Why it could not be placed.", "text"),
+    ("word_sets", "", "The constellations (atlas_sets.py): sets of two to five roots that occur together in one "
+                      "stretch of text far more often than their separate rates predict, found by the frequent "
+                      "itemset search; a set whose roots stand inside one formula in most of its units is kept "
+                      "as a phrase instead.", ""),
+    ("word_sets", "set_id", "The set's number.", "integer"),
+    ("word_sets", "run_id", "The run it was written under (runs.run_id).", "integer"),
+    ("word_sets", "scope", "Where it was searched: Old, New, or a book.", "text"),
+    ("word_sets", "norm", "What the expected count is measured against: book (the book's own windows) or "
+                          "testament (the testament's rates, so a book's pervasive words can stand out); a "
+                          "testament's own sets have norm testament.", "text"),
+    ("word_sets", "scale", "The unit of co-occurrence: window (verses moving one at a time inside a book), verse "
+                           "or chapter.", "text"),
+    ("word_sets", "window_size", "Verses per window; 1 at the verse scale, 0 at the chapter scale.", "verses"),
+    ("word_sets", "size", "How many roots the set holds.", "roots"),
+    ("word_sets", "roots", "Its Strong's numbers in canonical order, separated by spaces.", "Strong's numbers"),
+    ("word_sets", "words", "Their commonest King James spellings, for reading.", "text"),
+    ("word_sets", "support", "The units the set occurs in: every one of its roots has a token there.", "units"),
+    ("word_sets", "stretches", "Those units joined where they follow one another or overlap: the separate places "
+                               "the set gathers (a ten-verse window moving a verse at a time counts one place up "
+                               "to ten times in support).", "stretches"),
+    ("word_sets", "expected", "The support if the roots fell independently: units times the product of each "
+                              "root's share of the units.", "units"),
+    ("word_sets", "lift", "support / expected.  Against the book itself the expected count is the units times "
+                          "the product of each root's share; the floor grows with the size: 3 for pairs, 10 for "
+                          "triples, 30 for four and five.  Against the testament it is the set's concentration in "
+                          "the book (expected = the book's units times the set's testament rate), at least 3.",
+     "ratio"),
+    ("word_sets", "keyness", "Dunning's G2 of support against expected; at least 10.8.", "G2"),
+    ("word_sets", "phrase_units", "Units in which all the roots stand inside one formula run.", "units"),
+    ("word_sets", "frame_units", "Units in which the roots come in one same order within twelve content words "
+                                 "(stop words not counted).", "units"),
+    ("word_sets", "in_order", "frame_units / support: the share of the set's units in which its roots keep one "
+                              "order.", "share"),
+    ("word_sets", "kind", "phrase (inside one formula run in more than half its units), frame (three roots or "
+                          "more, not a phrase, and in one same order within twelve content words in more than "
+                          "half: a formula with gaps), or constellation (a pair in order stays one).", "text"),
+    ("word_sets", "closed", "1 when no larger kept set has the same support; a set with 0 says nothing its "
+                            "larger set does not.", "0 or 1"),
+    ("word_sets", "folds", "For a closed set, how many smaller sets of the same support fold under it.", "sets"),
+    ("word_sets", "parent", "For a set that is not closed, the closed set it folds under (word_sets.set_id); "
+                            "empty for a closed set.", "integer"),
+    ("word_sets", "span", "Chapters from the start of the set's first stretch to the end of its last.", "chapters"),
+    ("word_sets", "inclusio", "1 when, in a book, every stretch lies in the first or last 15% of its "
+                              "chapters, with one at each end: a frame found by counting.", "0 or 1"),
+    ("word_set_members", "", "Each root of each set, so every set holding one root can be found.", ""),
+    ("word_set_members", "set_id", "The set (word_sets.set_id).", "integer"),
+    ("word_set_members", "root", "The Strong's number.", "Strong's number"),
+    ("word_set_members", "word", "Its commonest King James spelling.", "text"),
+    ("word_set_members", "position", "Its place in the set, from 0, in canonical order.", "integer"),
+    ("word_set_windows", "", "The stretches of text behind each set: its units, joined where they follow one "
+                             "another, each a verse range to open.", ""),
+    ("word_set_windows", "set_id", "The set (word_sets.set_id).", "integer"),
+    ("word_set_windows", "book", "The book.", "book name"),
+    ("word_set_windows", "start_chapter", "The chapter of the stretch's first verse.", "chapter"),
+    ("word_set_windows", "start_verse", "The stretch's first verse.", "verse"),
+    ("word_set_windows", "end_chapter", "The chapter of its last verse.", "chapter"),
+    ("word_set_windows", "end_verse", "Its last verse.", "verse"),
+    ("renderings", "", "How each public domain English translation renders each Hebrew and Greek root, learned by "
+                       "aligning it with the King James verse by verse (atlas_renderings.py, IBM Model 1 read both "
+                       "ways) and borrowing the King James's Strong's tags.  Approximate: see "
+                       "renderings_translations.share.", ""),
+    ("renderings", "root", "The Strong's number.", "Strong's number"),
+    ("renderings", "word", "The King James's commonest spelling of the root, for reading.", "text"),
+    ("renderings", "translation", "The translation (renderings_translations.translation).", "abbreviation"),
+    ("renderings", "rendering", "A word the translation uses for the root, as it spells it; '(other)' holds the "
+                                "renderings used fewer than three times.", "text"),
+    ("renderings", "count", "The root's tagged occurrences in the translation rendered so.", "occurrences"),
+    ("renderings", "share", "count over the root's tagged occurrences in the translation; a root's rows in one "
+                            "translation sum to one.", "share"),
+    ("renderings", "testament", "Old for a Hebrew root, New for a Greek one.", "text"),
+    ("renderings_summary", "", "One row per root and translation: its leading rendering and how many words "
+                               "render it, so a translation's most varied and most uniform renderings can be "
+                               "found.", ""),
+    ("renderings_summary", "root", "The Strong's number.", "Strong's number"),
+    ("renderings_summary", "translation", "The translation.", "abbreviation"),
+    ("renderings_summary", "leading", "Its commonest rendering of the root.", "text"),
+    ("renderings_summary", "share", "The leading rendering's share of the root's tagged occurrences.", "share"),
+    ("renderings_summary", "distinct_renderings", "How many different renderings, as printed, render the root "
+                                                  "in it.", "renderings"),
+    ("renderings_summary", "renderings_folded", "The same with each rendering folded to its word by the atlas's "
+                                                "spelling table and stemmer (dwelt, dwell and dwelleth one): how "
+                                                "many different words render the root.", "words"),
+    ("renderings_summary", "tagged", "The root's tagged occurrences in the translation.", "occurrences"),
+    ("renderings_summary", "testament", "Old or New.", "text"),
+    ("renderings_translations", "", "The translations aligned, with the share of their content words tagged: "
+                                    "the measure of how far to trust their renderings rows.", ""),
+    ("renderings_translations", "translation", "Its abbreviation.", "abbreviation"),
+    ("renderings_translations", "title", "Its name.", "text"),
+    ("renderings_translations", "year", "Its date (metadata.db translation_families).", "year"),
+    ("renderings_translations", "verses", "The verses it has.", "verses"),
+    ("renderings_translations", "words", "Its content words, the stop words set aside.", "words"),
+    ("renderings_translations", "tagged", "Of them, those given a Strong's number through the alignment.", "words"),
+    ("renderings_translations", "share", "tagged / words.", "share"),
+    ("renderings_translations", "pairs", "Its trusted pairings with the King James's words (both directions, two "
+                                         "verses, no proper name with a common word).", "pairings"),
+    ("renderings_translations", "made", "When it was aligned.", "date and time"),
+    ("disagreement_verses", "", "How far the English translations stand apart on each verse; sorted by "
+                                "excess it is the list of cruxes.", ""),
+    ("disagreement_verses", "reference", "The verse, as the King James numbers it.", "reference"),
+    ("disagreement_verses", "book", "The book.", "book name"),
+    ("disagreement_verses", "chapter", "The chapter.", "chapter"),
+    ("disagreement_verses", "verse", "The verse.", "verse"),
+    ("disagreement_verses", "mean_distance", "The mean, over every pair of translations having the verse, of one "
+                                             "minus the share of content words they share (words compared "
+                                             "through the alignment).",
+     "0 to 1"),
+    ("disagreement_verses", "excess", "The mean, over the same pairs, of each pair's distance on the verse less "
+                                      "its mean distance over every verse both have: how much further apart than "
+                                      "usual the translations stand here.  The cruxes are sorted by it.  Empty "
+                                      "when fewer than three King James content words remain once names are "
+                                      "set aside and no translation lacks the verse.",
+     "distance, about -0.3 to 0.6"),
+    ("disagreement_verses", "present", "Translations having the verse.", "translations"),
+    ("disagreement_verses", "expected", "Translations having the book (half its verses or more).", "translations"),
+    ("disagreement_verses", "missing", "The share of the translations having the book that lack the verse; a "
+                                       "verse merged into a neighbour is not counted as lacking.", "share"),
+    ("disagreement_verses", "merged", "Translations that hold the verse inside the verse before or after it "
+                                      "(more than half of the King James verse's content words stand there): "
+                                      "a difference of verse division, not an omission.", "translations"),
+    ("disagreement_verses", "merged_with", "Each merged translation and the neighbour holding the verse, as "
+                                           "translation>chapter:verse, separated by spaces.", "list"),
+    ("disagreement_verses", "names", "The King James's distinct proper names in the verse; names are set aside "
+                                     "from the distance on the rule that bars them from the alignment.", "words"),
+    ("disagreement_verses", "far_a", "One of the two translations furthest apart on the verse.", "abbreviation"),
+    ("disagreement_verses", "far_b", "The other.", "abbreviation"),
+    ("disagreement_verses", "far_distance", "Their distance (the pair furthest beyond its usual distance).",
+     "0 to 1"),
+    ("disagreement_verses", "outlier", "The translation whose distances from the others on the verse stand "
+                                       "furthest beyond its usual distances from them (empty with fewer than "
+                                       "three translations).", "abbreviation"),
+    ("disagreement_verses", "unique_words", "Content words no two translations share, separated by spaces.", "words"),
 ]
 
 
@@ -693,6 +996,72 @@ def write_sources(db, path=ATTRIBUTION_PATH):
     return db.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
 
 
+# The theme tables a reader needs (atlas_themes.py writes them into
+# atlas.db when a theme is loaded).  They are copied whole, colours,
+# sections and verse texts included, so a reader draws the strip and
+# lists the verses from stored rows and never works anything out.
+THEME_TABLES = ("theme", "theme_verse", "theme_strip", "theme_term", "theme_problem")
+
+
+def write_themes(db, atlas_path):
+    """
+    Copy the themes of an atlas.db into a results file (or the packed
+    copy of one), replacing any copy already there.  A build made before
+    themes (0.10.109) has no theme tables: then empty ones are written,
+    so a reader finds the tables and says there are no themes.  Returns
+    the number of themes copied.
+    """
+    db.commit()                          # ATTACH is refused inside an open transaction
+    for table in THEME_TABLES:
+        db.execute(f"DROP TABLE IF EXISTS {table}")
+    copied = 0
+    if atlas_path and os.path.exists(atlas_path):
+        db.execute("ATTACH DATABASE ? AS atlas_src",
+                   ("file:" + os.path.abspath(atlas_path).replace("\\", "/") + "?mode=ro",))
+        try:
+            have = {r[0] for r in db.execute("SELECT name FROM atlas_src.sqlite_master WHERE type = 'table'")}
+            if all(t in have for t in THEME_TABLES):
+                cols = {r[1] for r in db.execute("PRAGMA atlas_src.table_info(theme_strip)")}
+                if "colour_core" in cols:          # loaded by 0.10.109's ThemeStore, with colours stored
+                    for table in THEME_TABLES:
+                        db.execute(f"CREATE TABLE {table} AS SELECT * FROM atlas_src.{table}")
+                    copied = db.execute("SELECT COUNT(*) FROM theme").fetchone()[0]
+            db.commit()
+        finally:
+            db.execute("DETACH DATABASE atlas_src")
+    if not copied:
+        # No themes to carry: the empty tables, with the columns a reader asks for
+        for table in THEME_TABLES:
+            db.execute(f"DROP TABLE IF EXISTS {table}")
+        db.executescript(THEME_EMPTY_SCHEMA)
+    db.execute("CREATE INDEX IF NOT EXISTS idx_theme_strip ON theme_strip (theme_id, position)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_theme_verse ON theme_verse (theme_id, position)")
+    try:
+        db.executemany("INSERT OR REPLACE INTO schema_notes VALUES (?, ?, ?, ?)",
+                       [n for n in SCHEMA_NOTES if n[0] in THEME_TABLES])
+    except sqlite3.Error:
+        pass                             # an old results file without schema_notes
+    db.commit()
+    return copied
+
+
+# The theme tables as they stand empty (the same columns atlas_themes.py writes)
+THEME_EMPTY_SCHEMA = """
+CREATE TABLE theme (theme_id TEXT, name TEXT, created TEXT, source_file TEXT, require_patterns TEXT, home TEXT,
+                    home_label TEXT, cushion REAL, notes TEXT, file TEXT, loaded TEXT, build TEXT,
+                    n_core INTEGER, n_borderline INTEGER, n_excluded INTEGER, n_chapters INTEGER);
+CREATE TABLE theme_verse (theme_id TEXT, book TEXT, chapter INTEGER, verse INTEGER, reference TEXT,
+                          verse_id INTEGER, role TEXT, reason TEXT, source_refs TEXT, texts TEXT,
+                          position INTEGER, text TEXT, as_written TEXT);
+CREATE TABLE theme_strip (theme_id TEXT, position INTEGER, book TEXT, chapter INTEGER, chapter_verses INTEGER,
+                          in_home INTEGER, core INTEGER, all_verses INTEGER, expected_core REAL,
+                          expected_all REAL, lift_core REAL, lift_all REAL, section TEXT,
+                          section_start INTEGER, colour_core TEXT, colour_all TEXT);
+CREATE TABLE theme_term (theme_id TEXT, strongs TEXT, root TEXT, note TEXT);
+CREATE TABLE theme_problem (theme_id TEXT, reference TEXT, problem TEXT);
+"""
+
+
 def ensure_results_schema(db, attribution_path=ATTRIBUTION_PATH):
     """
     Create every table of the results file that is missing (the pages,
@@ -702,7 +1071,25 @@ def ensure_results_schema(db, attribution_path=ATTRIBUTION_PATH):
     The pack's own tables (passages, the King James text) are added by
     atlas_pack.py to the packed copy only.
     """
-    db.executescript(RESULTS_SCHEMA + HEAT_SCHEMA + SOURCES_SCHEMA + SCHEMA_NOTES_SCHEMA)
+    # Set tables written before 0.10.112 lack its columns (norm, closed,
+    # folds, parent, in_order ...): they are dropped and made afresh, and the next
+    # atlas_sets.py --all (or canon run) fills them again
+    cols = {r[1] for r in db.execute("PRAGMA table_info(word_sets)")}
+    if cols and "folds" not in cols:
+        for table in ("word_set_members", "word_set_windows", "word_sets"):
+            db.execute(f"DROP TABLE IF EXISTS {table}")
+    # disagreement_verses written before 0.10.114 lacks merged and names;
+    # atlas_renderings.py strips writes it whole, so it is made afresh
+    cols = {r[1] for r in db.execute("PRAGMA table_info(disagreement_verses)")}
+    if cols and "names" not in cols:
+        db.execute("DROP TABLE disagreement_verses")
+    # renderings_summary written before 0.10.114 lacks renderings_folded;
+    # atlas_renderings.py align writes it whole, so it is made afresh
+    cols = {r[1] for r in db.execute("PRAGMA table_info(renderings_summary)")}
+    if cols and "renderings_folded" not in cols:
+        db.execute("DROP TABLE renderings_summary")
+    db.executescript(RESULTS_SCHEMA + HEAT_SCHEMA + SOURCES_SCHEMA + SETS_SCHEMA + RENDERINGS_SCHEMA
+                     + SCHEMA_NOTES_SCHEMA)
     db.executemany("INSERT OR REPLACE INTO schema_notes VALUES (?, ?, ?, ?)", SCHEMA_NOTES)
     db.commit()
     write_sources(db, attribution_path)
@@ -713,7 +1100,8 @@ def delete_runs(db, run_ids, vacuum=True):
     Delete the given runs from a results file, with their pages and the
     pages' sections, cells, refs and footers, then (by default) VACUUM
     so the file gives the space back.  The heat rows, sources and
-    schema_notes belong to no run and are left.  Used by
+    schema_notes belong to no run and are left; the constellations
+    (word_sets and its two tables) go with their run.  Used by
     atlas_results.py prune and by atlas_pack.py's one-run pack.
     """
     run_ids = list(run_ids)
@@ -727,6 +1115,12 @@ def delete_runs(db, run_ids, vacuum=True):
     for table in ("cells", "refs", "footers"):
         db.execute(f"DELETE FROM {table} WHERE section_id IN ({sections})", run_ids)
     db.execute(f"DELETE FROM sections WHERE page_id IN ({pages})", run_ids)
+    # The constellations written under those runs (atlas_sets.py), when the file has them
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name = 'word_sets'").fetchone():
+        sets = f"SELECT set_id FROM word_sets WHERE run_id IN ({marks})"
+        for table in ("word_set_members", "word_set_windows"):
+            db.execute(f"DELETE FROM {table} WHERE set_id IN ({sets})", run_ids)
+        db.execute(f"DELETE FROM word_sets WHERE run_id IN ({marks})", run_ids)
     db.execute(f"DELETE FROM pages WHERE run_id IN ({marks})", run_ids)
     db.execute(f"DELETE FROM runs WHERE run_id IN ({marks})", run_ids)
     db.commit()
@@ -769,7 +1163,11 @@ class ResultsWriter:
         cur = self.db.execute("INSERT INTO runs (version, build, started, note) VALUES (?, ?, ?, ?)",
                               (VERSION, atlas.build_line(), time.strftime("%Y-%m-%d %H:%M:%S"), note))
         self.db.commit()
-        return cur.lastrowid
+        run_id = cur.lastrowid
+        # The build's themes go into the results file with the run: like the
+        # passages they belong to no run, so the newest copy stands
+        write_themes(self.db, getattr(atlas, "path", None))
+        return run_id
 
     def write(self, report, run_id):
         """

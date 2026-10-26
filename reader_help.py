@@ -36,9 +36,59 @@ HELP = {
     "pages": "The pages the run holds, grouped by kind: Book, Chapter, Section, Passage, Word, Kin, "
              "Testament, Compare.  Click one to show it on the Page and Table tabs.",
     "tabs": "The views of the chosen page: Page (as text), Table (one table as a grid), Search (hits), "
-            "Results (the canon-wide questions from the Results menu), Ask Claude, and Heat (a book's heat strips, their spots and the King James text).  Tools, the last "
+            "Results (the canon-wide questions from the Results menu), Ask Claude, Heat (a book's heat strips, their spots and the King James text), Themes (a hand-made set of verses as a strip of the canon), and Constellations (the sets of words that travel together).  Tools, the last "
             "tab, holds what is wanted now and then: the dataset's details, a query of your own, this "
             "copy's tests and guest key, and passing the Reader on as a zip or on a USB drive.",
+    "sets_tab": "Constellations: sets of two to five words that gather in one stretch of text (a window of ten "
+                "verses moving a verse at a time) far more often than their separate rates predict, as the "
+                "main program's atlas_sets.py found them.  Every figure is stored; the Reader counts nothing.",
+    "sets_note": "What the Constellations tab shows, or why it is empty (a dataset packed before Word Atlas 0.10.112).",
+    "sets_scope": "The book whose sets to show, or the Old or New Testament.  Choosing a book's page on the left "
+                  "brings the same book here.",
+    "sets_norm": "What a set's chance is measured against.  Against the book itself: the book's own windows, "
+                 "so a set shows where it gathers in one part of the book against the rest.  Against its "
+                 "testament: the testament's own sets, kept where the book holds them at least three times as "
+                 "often, so the words that run through a whole book (covenant, keep, commandments in "
+                 "Deuteronomy) stand out there.",
+    "sets_kind": "constellation: words that gather without standing in order.  frame: three roots or more in one "
+                 "same order within twelve content words in most windows, a formula with gaps.  phrase: the "
+                 "roots inside one formula (adjacent words) in most windows.",
+    "sets_size": "How many roots a set holds: 2 to 5.",
+    "sets_closed": "Closed: no larger set has the same support.  A set that is not closed is the same words over "
+                   "the same places with one fewer of them, so it says nothing new; it is listed under its "
+                   "closed set below the grid.  Untick to see every set.",
+    "sets_root": "Keep only the sets that hold one word: type a King James word (covenant) or a Strong's number "
+                 "(H1285) and press Enter.  Every set a word belongs to, strongest first: the word association "
+                 "view.  Empty the box for every set.",
+    "sets_save": "Save the grid as text, in its present order, with the filter at the head.",
+    "sets_copy": "Copy the chosen set's line, with every figure, to the clipboard.",
+    "sets_count": "How many stored sets match the filter; the grid shows the 500 strongest.",
+    "sets_grid": "One row per set, strongest (highest keyness) first; click a heading to sort by it.  Point at "
+                 "a row for its Strong's numbers; choose it to see where it gathers.",
+    "sets_strip": "The chosen set along the book (or the testament), a cell per verse, red where the set "
+                  "gathers: its places, and at a glance an inclusio, a set at both ends of a book.",
+    "sets_places": "The chosen set's places, the verse ranges where it gathers (its windows joined where they "
+                   "touch); choose one to read it on the right.  Below them, the smaller sets folded under it.",
+    "sets_tags": "Show each verse's Strong's numbers under its text.",
+    "sets_text": "The King James text of the chosen place.",
+    "themes_tab": "A theme: a set of verses gathered by hand that belong together (land and inheritance), as a "
+                  "strip of the canon, one cell per chapter, and the list of its verses with their roles.  "
+                  "Every figure is the one the main program stored; the Reader works nothing out.",
+    "theme_note": "What the Themes tab shows, or why it is empty (a dataset packed before Word Atlas 0.10.109).",
+    "theme_box": "The theme to show.  A dataset carries every theme the main program had loaded when it was packed.",
+    "theme_borderline": "Paint the strip by core verses only (unticked), or by core plus borderline verses "
+                        "(ticked).  A borderline verse matches the theme's words but stands apart from it.",
+    "theme_summary": "The theme's counts by role, its home range and cushion, the lift formula, and the build "
+                     "it was loaded into.",
+    "theme_strip": "One cell per chapter of the canon in order, a line per book, painted in the colour the main "
+                   "program stored: light grey ordinary, red over (full red at 4 times or more), blue under, "
+                   "grey outside the home range; a chapter with none of the theme is plain.  A short dark tick "
+                   "marks where a section of the book begins.  Point at a cell for its stored figures, click it "
+                   "for its verses.",
+    "theme_all": "List every verse of the theme again, after a chapter's verses were shown.",
+    "theme_verses": "The theme's verses: core (the theme is about it), borderline (matches but stands apart) "
+                    "and excluded (found by the search but not the theme, never counted), each with its reason, "
+                    "the reference as the list wrote it when another numbering was turned, and its text.",
     "heat_tab": "The heat strips of a book, its spots and the King James text, from the rows the main program "
                 "stored (datasets of Word Atlas 0.10.101 or later).",
     "heat_note": "What the Heat tab shows, or why it is empty: a dataset made before Word Atlas 0.10.101 has no "
@@ -50,12 +100,22 @@ HELP = {
                  "against its kind).  All are in the same z-like units: +2 is about the top 2.3%.",
     "heat_kind": "Which strips to draw: every one, or one kind: the five measures, feeling and its families, the "
                  "word lists (ransom, rest, character ...), the names and numbers, the contexts (what a passage "
-                 "is about) or the voices (who speaks to whom).",
+                 "is about) or the voices (who speaks to whom).  Two strips of kind translations, disagreement and "
+                 "missing, show under every strip: see the strip chart's note.",
     "heat_chart": "One row per strip, one cell per window of verses moving a verse at a time: red where the strip "
                   "runs hot, blue where it runs cool, grey where it is ordinary, the colours of the main "
                   "program's charts.  Point at a cell for its verses and score, at a name for what the strip "
                   "measures and a word list's words.  Click a strip to list its spots; click a cell to read its "
-                  "verses.  Chapter numbers run along the top.",
+                  "verses.  Chapter numbers run along the top.\n\nThe translations strips (when the dataset "
+                  "has them): disagreement is how far the English translations stand apart on the verses of the "
+                  "window.  Two translations' distance on a verse is the share of their content words they do "
+                  "not share, the words matched through an alignment with the King James, so a spelling is not "
+                  "a difference; proper names are set aside, so a list of names spelled eleven ways is not a "
+                  "crux; and each pair's usual distance is taken off, so Wycliffe's Middle English does not "
+                  "light every verse.  Red marks where the Hebrew or Greek is obscure, or where the manuscripts "
+                  "differ.  missing is the share of the translations lacking the verse.  A verse a "
+                  "translation holds inside the verse before or after it is merged, a difference of verse "
+                  "division, and is told apart from a verse it lacks: only the lacking are counted.",
     "heat_line": "Which spots to list: those past the report's own line (z 2 on the z scale), or past the near "
                  "line, three quarters of it (z 1.5), for near misses.",
     "heat_spots": "The chosen strip's spots: runs of windows past the line, joined when they share half a window, "

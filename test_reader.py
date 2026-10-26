@@ -47,6 +47,32 @@ SAMPLE = (sorted(glob.glob(os.path.join(HERE, "sample", "*.wadb")), key=os.path.
           [os.path.join(HERE, "sample", "word_atlas_0.10.69_2026-10-05.wadb")])[-1]
 
 
+def old_sample():
+    """
+    A dataset of the oldest kind (the pages only, as Word Atlas 0.10.69
+    packed them): the sample's results.db with every later table taken out.
+    The sample itself carries the constellations, the King James text and
+    the sources since Reader 0.3.22, so the tests that ask how an old file
+    is shown open this instead.  Made once per test run.
+    """
+    path = os.path.join(TEST_HOME, "old_sample.db")
+    if not os.path.exists(path):
+        from reader_data import Dataset
+        d = Dataset.open(SAMPLE)
+        src = d.db_path
+        d.close()
+        shutil.copy2(src, path)
+        db = sqlite3.connect(path)
+        keep = {"runs", "pages", "sections", "cells", "refs", "footers"}
+        for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall():
+            if name not in keep and not name.startswith("sqlite_"):
+                db.execute(f'DROP TABLE "{name}"')
+        db.commit()
+        db.execute("VACUUM")
+        db.close()
+    return path
+
+
 def a_root_in(dataset):
     """A Strong's number the dataset holds (H1005 in the Ezra sample; whatever the file has), for the search tests."""
     row = dataset.db.execute("SELECT value FROM cells WHERE value GLOB '[HG][0-9]*' AND value NOT GLOB '*[^HG0-9]*' "
@@ -779,6 +805,182 @@ def _():
     old.close()
 
 
+def make_theme_dataset(path):
+    """
+    A small results file with one theme of three chapters, as Word Atlas
+    0.10.109 packs it.  The stored figures are made to disagree with the
+    lift formula on purpose (lift 9.99 for one verse expected 0.10, the
+    colour #123456): a Reader that worked anything out would show other
+    numbers and colours, one that only reads shows these.
+    """
+    import atlas_report
+    make_heat_dataset(path)
+    db = sqlite3.connect(path)
+    atlas_report.write_themes(db, None)          # the empty theme tables, as for an atlas without themes
+    db.execute("INSERT INTO theme VALUES ('t1', 'Test theme', '2026-10-24', 'list.csv', '[]', '', "
+               "'the whole Bible', 2.0, '', 't1.json', '2026-10-24 12:00', 'build ''x'' made today', 2, 1, 1, 2)")
+    rows = [("Ruth", 1, 22, 1, 1, 1, 0.10, 0.12, 9.99, 8.88, "Naomi returns", 0, "#123456", "#654321"),
+            ("Ruth", 2, 23, 1, 1, 2, 0.11, 0.13, 7.77, 6.66, "Gleaning", 1, "#abcdef", "#fedcba"),
+            ("Ruth", 3, 18, 1, 0, 0, 0.08, 0.10, 0.5, 0.5, "", 0, "#f0efec", "#f0efec")]
+    for position, (book, ch, n, home, core, allv, e_core, e_all, l_core, l_all, sec, start, c_core, c_all) in \
+            enumerate(rows):
+        db.execute("INSERT INTO theme_strip VALUES ('t1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (position, book, ch, n, home, core, allv, e_core, e_all, l_core, l_all, sec, start, c_core, c_all))
+    for position, (ch, v, role, reason) in enumerate([(1, 1, "core", ""), (2, 3, "core", ""),
+                                                      (2, 4, "borderline", "ordinary field"),
+                                                      (2, 9, "excluded", "false match")]):
+        db.execute("INSERT INTO theme_verse VALUES ('t1', 'Ruth', ?, ?, ?, ?, ?, ?, '[]', '[]', ?, ?, '')",
+                   (ch, v, f"Rut {ch}:{v}", position + 1, role, reason, position, f"Ruth {ch}:{v} text"))
+    db.execute("INSERT INTO theme_problem VALUES ('t1', 'Rut 9:9', 'no such verse in the atlas')")
+    db.execute("INSERT INTO theme_term VALUES ('t1', 'H5159', '', 'nachalah')")
+    db.commit()
+    db.close()
+
+
+@test("a long entry in any drop-down does not squeeze the page list or lock the divider")
+def _():
+    from PyQt6.QtWidgets import QApplication, QComboBox, QSplitter
+    app = QApplication.instance() or QApplication(sys.argv)
+    import word_atlas_reader
+    win = word_atlas_reader.ReaderWindow(None)
+    win.resize(1300, 850)
+    # A question to Claude, a section title or a run's notes can run to
+    # hundreds of characters; 0.3.20 let such an entry set the right
+    # side's least width, and the page list shrank to a sliver
+    long = "Which part of Revelation stands furthest from the rest of the book in its function words, " * 4
+    for combo in win.findChildren(QComboBox):
+        combo.addItem(long)
+    win.show()
+    for _ in range(10):
+        app.processEvents()
+    split = win.centralWidget().findChild(QSplitter)
+    least = split.widget(1).minimumSizeHint().width()
+    assert least < 900, f"the right side needs {least} pixels"
+    assert split.sizes()[0] > 200, f"the page list is {split.sizes()[0]} pixels wide"
+    win.close()
+    return f"right side needs {least} px, page list {split.sizes()[0]} px "
+
+
+@test("the Constellations tab: the sample's sets by root and kind, a set's places and text, an inclusio")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    from reader_data import Dataset
+    from reader_constellations import ConstellationTab, HEADINGS
+    d = Dataset.open(SAMPLE)
+    assert d.has_sets(), "the sample carries no constellations: remake it from a dataset that has them"
+    run = d.set_run()
+    assert d.set_scopes(run)[:1] == ["New"] and "Revelation" in d.set_scopes(run)
+    assert d.set_norms(run, "Revelation") == ["book", "testament"]
+    tab = ConstellationTab(None)
+    tab.set_dataset(d)
+    tab.show_book("Revelation")
+    assert tab.scope_box.currentText() == "Revelation" and tab.grid.rowCount() > 0
+    # Strongest first, as stored
+    keys = [float(tab.grid.item(r, HEADINGS.index("keyness")).text()) for r in range(tab.grid.rowCount())]
+    assert keys == sorted(keys, reverse=True), keys[:5]
+    # The root box: every set holding John, by word and by Strong's number alike
+    tab.root_edit.setText("john")
+    tab.refresh()
+    by_word = tab.total
+    tab.root_edit.setText("G2491")
+    tab.refresh()
+    assert by_word == tab.total > 0
+    words = [tab.grid.item(r, 0).text() for r in range(tab.grid.rowCount())]
+    assert all("john" in w for w in words), words
+    # The known frame of the book: beginning, John, word, end, marked an inclusio, with its places
+    row = next(r for r in range(tab.grid.rowCount()) if tab.grid.item(r, 0).text() == "beginning, john, word, end")
+    assert tab.grid.item(row, HEADINGS.index("inclusio")).text() == "yes"
+    assert tab.grid.item(row, 0).toolTip() == "G746 G2491 G3056 G5056"
+    tab.grid.selectRow(row)
+    places = [tab.place_list.item(i).text() for i in range(tab.place_list.count())]
+    assert places[0].startswith("Revelation 1:") and any("chapter 22" in p for p in places), places
+    assert any("Folded under it" in p for p in places), places
+    assert "Revelation 1:" in tab.text_view.toPlainText()
+    tab.tags_box.setChecked(True)
+    assert "G" in tab.text_view.toPlainText().split("\n", 3)[3]
+    # The strip lights the book's two ends and not its middle
+    lit = [i for i, on in enumerate(tab.strip.lit) if on]
+    n = len(tab.strip.verses)
+    assert lit and min(lit) < n * 0.15 and max(lit) > n * 0.85 and not any(n * 0.3 < i < n * 0.7 for i in lit)
+    # Kind and size filters
+    tab.root_edit.setText("")
+    tab.kind_box.setCurrentIndex(tab.kind_box.findData("phrase"))
+    assert all(tab.grid.item(r, 2).text() == "phrase" for r in range(tab.grid.rowCount()))
+    tab.kind_box.setCurrentIndex(0)
+    tab.size_box.setCurrentIndex(tab.size_box.findData(3))
+    assert tab.grid.rowCount() > 0 and all(tab.grid.item(r, 1).text() == "3" for r in range(tab.grid.rowCount()))
+    # Unticking closed sets only shows the folded ones too
+    closed = tab.total
+    tab.closed_box.setChecked(False)
+    assert tab.total >= closed
+    # Save and copy: the filter line heads the text
+    text = tab.grid_text()
+    assert text.startswith("Constellations: Revelation, against the book itself") and "size 3" in text.splitlines()[0]
+    tab.copy_set()
+    assert QApplication.clipboard().text().startswith(tab.chosen["words"])
+    # The testament norm of a book, and the New Testament's own sets
+    tab.size_box.setCurrentIndex(0)
+    tab.norm_box.setCurrentIndex(tab.norm_box.findData("testament"))
+    assert tab.grid.rowCount() > 0
+    tab.show_book("New")
+    assert tab.norm_box.count() == 1 and tab.norm_box.itemText(0) == "against itself"
+    d.close()
+    # A dataset without the tables: the tab says which dataset to open
+    old = Dataset.open(old_sample())
+    assert not old.has_sets()
+    tab.set_dataset(old)
+    assert "packed before Word Atlas 0.10.112" in tab.note.text() and tab.grid.rowCount() == 0
+    old.close()
+    return f"{by_word} sets hold John; the frame at both ends lit "
+
+
+@test("the Reader reads theme strips without computing anything")
+def _():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    from reader_data import Dataset
+    from reader_themes import ThemeTab
+    path = os.path.join(TEST_HOME, "theme_results.db")
+    make_theme_dataset(path)
+    d = Dataset.open(path)
+    assert d.has_themes() and [t["theme_id"] for t in d.themes()] == ["t1"]
+    cells = d.theme_strip("t1")
+    assert [c["lift_core"] for c in cells] == [9.99, 7.77, 0.5], cells
+    assert [v["role"] for v in d.theme_verses("t1")] == ["core", "core", "borderline", "excluded"]
+    assert len(d.theme_verses("t1", "Ruth", 2)) == 3
+    assert d.theme_problems("t1") == [("Rut 9:9", "no such verse in the atlas")]
+    tab = ThemeTab(None)
+    tab.set_dataset(d)
+    chart = tab.chart
+    image = chart.grab().toImage()
+    # The first cell of Ruth's line is painted with the stored colour, not one worked out from the lift
+    y = chart.TOP + chart.CELL_H // 2
+    x = chart.label_w + 2
+    assert image.pixelColor(x, y).name() == "#123456", image.pixelColor(x, y).name()
+    tab.borderline_box.setChecked(True)
+    image = chart.grab().toImage()
+    assert image.pixelColor(x, y).name() == "#654321", image.pixelColor(x, y).name()
+    tip = chart.tip(cells[0])
+    assert "lift 9.99 core, 8.88 with borderline" in tip and "expected 0.10" in tip, tip
+    # A click lists the chapter's stored verses
+    tab.chapter_clicked(1)
+    assert tab.grid.rowCount() == 3 and tab.grid.item(2, 1).text() == "excluded"
+    assert "Rut 9:9" in tab.footer.text() and "H5159" in tab.footer.text()
+    # The tab's code holds no arithmetic of its own: no lift, log or colour scale
+    source = open(os.path.join(HERE, "reader_themes.py"), encoding="utf-8").read()
+    for word in ("import math", "math.", "log2", "strip_colour", "COOL =", "HOT ="):
+        assert word not in source, f"reader_themes.py holds {word!r}"
+    d.close()
+    # A dataset packed before themes: the tab says so
+    old = Dataset.open(SAMPLE)
+    assert not old.has_themes() and old.themes() == []
+    tab.set_dataset(old)
+    assert "no themes" in tab.note.text()
+    old.close()
+    return "stored colours and lifts shown as stored "
+
+
 @test("references are read as the Heat tab's box takes them")
 def _():
     from reader_data import Dataset
@@ -827,7 +1029,7 @@ def _():
         row, pos = h.chart.hit(h.chart.rect().topLeft() + type(h.chart.rect().topLeft())(10, h.chart.TOP + 4))
         assert (row, pos) == (0, -1), (row, pos)
         # An older file: the tab says why it is bare
-        assert w.open_path(SAMPLE)
+        assert w.open_path(old_sample())
         assert "made before Word Atlas 0.10.101" in h.note.text() and h.book_box.count() == 0
         assert h.spot_grid.rowCount() == 0 and not h.verse_edit.isEnabled()
     finally:
@@ -866,7 +1068,7 @@ def _():
         text = reader_credits.credits_text(w.data.db, "sources_results.db")
         assert "As this dataset records them" in text and "Credit:   Cross references from OpenBible.info, CC BY." in text
         # An older dataset: no table, and the box says so
-        assert w.open_path(SAMPLE)
+        assert w.open_path(old_sample())
         w.about()
         table = w.about_dialog.findChild(QTableWidget, "about_sources")
         assert table.rowCount() == 0 and not table.isVisibleTo(w.about_dialog)

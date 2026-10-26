@@ -53,8 +53,10 @@ import reader_guest
 import reader_questions
 from reader_tools import ToolsTab
 from reader_heat import HeatTab
+from reader_themes import ThemeTab
+from reader_constellations import ConstellationTab
 
-VERSION = "0.3.17"
+VERSION = "0.3.23"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -431,13 +433,43 @@ class ReaderWindow(QMainWindow):
         self.heat_tab = HeatTab(self)
         self.heat_tab.setProperty("help", "heat_tab")
         self.tabs.addTab(self.heat_tab, "Heat")
+        # The Themes tab (0.3.20): a theme's strip and verses, drawn from
+        # the stored rows of a dataset packed by Word Atlas 0.10.109 or later
+        self.theme_tab = ThemeTab(self)
+        self.theme_tab.setProperty("help", "themes_tab")
+        self.tabs.addTab(self.theme_tab, "Themes")
+        # The Constellations tab (0.3.22): the sets of words that travel
+        # together, from the stored rows of a dataset packed by Word Atlas 0.10.112
+        self.sets_tab = ConstellationTab(self)
+        self.sets_tab.setProperty("help", "sets_tab")
+        self.tabs.addTab(self.sets_tab, "Constellations")
         # The Tools tab comes last, so the tabs before it keep their places
         self.tools_tab = ToolsTab(self)
         self.tabs.addTab(self.tools_tab, "Tools")
+        # Every drop-down sized by a set number of characters, not by its
+        # longest entry (0.3.21): a long past question to Claude had made
+        # its box, and so the whole right side, wider than the window, which
+        # squeezed the page list on the left to a sliver and locked the divider
+        self.narrow_combos()
         # Help mode: the ? button, F1, and the event filter that shows the notes
         self.help_mode = HelpMode(self, self.help_btn)
         self.help_btn.toggled.connect(self.help_mode.set_active)
         QShortcut(QKeySequence("F1"), self, activated=lambda: self.help_btn.toggle())
+
+    def narrow_combos(self, chars=16):
+        """
+        Give every drop-down of the window that does not already have one
+        the AdjustToMinimumContentsLengthWithIcon rule: its least width is
+        a few characters, whatever it holds, and its list still shows each
+        entry in full when opened.  Qt's default sizes a box to its longest
+        entry, and a box filled from the data (past questions, section
+        titles, a run's notes) can then hold the window open wider than
+        the screen.
+        """
+        for combo in self.findChildren(QComboBox):
+            if combo.sizeAdjustPolicy() != QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon:
+                combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+                combo.setMinimumContentsLength(chars)
 
     def _build_page_tab(self):
         """The page as text, with a box to jump to a section."""
@@ -801,6 +833,8 @@ class ReaderWindow(QMainWindow):
             self.data.close()
         self.data = data
         self.heat_tab.set_dataset(data)
+        self.theme_tab.set_dataset(data)
+        self.sets_tab.set_dataset(data)
         self.settings["last_file"] = path
         save_settings(self.settings)
         self.setWindowTitle(f"Word Atlas Reader {VERSION}  -  {os.path.basename(path)}")
@@ -868,10 +902,11 @@ class ReaderWindow(QMainWindow):
         atlas = self.data.build_of(self.run_id)
         self.page_text = render(self.report, atlas=atlas)
         self.page_prose = prose_lines(self.report, atlas)
-        # A book's page brings the same book up on the Heat tab
+        # A book's page brings the same book up on the Heat and Constellations tabs
         book = re.match(r"Book page \[(.+?)\]", self.report.title)
         if book:
             self.heat_tab.show_book(book.group(1))
+            self.sets_tab.show_book(book.group(1))
         self.fold_width = 0                     # fold afresh for the new page
         self.shown_source = []
         self.refold_page(force=True)

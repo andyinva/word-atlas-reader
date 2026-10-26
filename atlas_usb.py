@@ -2,7 +2,8 @@
 """
 atlas_usb.py  -  a USB drive that installs Word Atlas and the Reader
 
-A drive made here carries both programs, their data, an installer for
+A drive made here carries both programs (and, when ticked, Bible Search
+Lite with its bibles.db: 0.10.107), their data, an installer for
 Windows and for Linux, and (when the internet is at hand while the
 drive is made) the PyQt6 the programs need, so the computer the drive
 is plugged into needs Python and nothing else.  Making the drive again
@@ -21,6 +22,7 @@ changed.
         usb_manifest.json       what the drive holds, file by file
         programs/word_atlas_reader/     the Reader's program files
         programs/word_atlas/            Word Atlas's program files
+        programs/bible_search_lite/     Bible Search Lite's program files and database/bibles.db
         data/reader/                    the dataset (.wadb) the Reader opens
         data/word_atlas/                the built databases chosen for the drive
         wheels/                         PyQt6 for Windows and Linux
@@ -40,8 +42,11 @@ standard library only; atlas_usb_dialog.py is the window over it.
     python3 atlas_usb.py build DRIVE [--no-reader] [--no-atlas] [--no-wheels]
                                      [--data atlas.db,lxx.db,...] [--dataset FILE.wadb]
                                      [--guest-key] [--keep-old] [--verify]
+                                     [--bsl] [--bsl-dir FOLDER]
         make the drive, or bring it up to date; DRIVE is the drive's
-        folder (/media/andrew/KINGSTON, E:\\) or any folder at all
+        folder (/media/andrew/KINGSTON, E:\\) or any folder at all;
+        --bsl adds Bible Search Lite (found as bible-search-lite beside
+        this program's folder, or in the folder --bsl-dir names)
 
 Author: Andrew Hopkins (with Claude)
 """
@@ -137,6 +142,22 @@ ATLAS_DATA = [
     ("results.db", os.path.join("reports", "results.db"), False,
      "the results database behind the Results menu.  Large; the Reader's dataset already carries its pages"),
 ]
+# Bible Search Lite (0.10.107): Andrew's Bible search program, which the
+# drive carries when its box is ticked.  Its program files are the ones
+# its own updater keeps (update_files.txt in its folder, the list it
+# downloads from GitHub), with these beside them; its one database is
+# database/bibles.db.  Its other databases (subjects.db, user_data.db)
+# and its settings file are the user's own and never go: the program
+# makes them afresh on its first start.
+BSL_FOLDER_NAMES = ("bible-search-lite", "bible_search_lite", "BibleSearchLite")
+BSL_SCRIPT = "bible_search_lite.py"
+BSL_EXTRA_FILES = ("update_files.txt", "LICENSE", "README.md", "requirements.txt", "VERSION.txt",
+                   "bible_search_lite.png", "bible_search_lite.ico")
+BSL_DATABASE = "database/bibles.db"
+BSL_NOTE = ("Bible Search Lite and its bibles.db (about 440 MB).  bibles.db holds translations still under "
+            "copyright as well as free ones: fine for your own computers, but check before handing the "
+            "drive to someone else")
+
 # bibles.db, Bible Search Lite's whole database, was on this list until
 # 0.10.93.  Word Atlas no longer reads it once atlas_source.db is made
 # (the parts it needs are in that file), and it holds translations
@@ -234,6 +255,73 @@ def find_reader_dir():
     return None
 
 
+def is_bsl_dir(folder):
+    """True for a folder that holds Bible Search Lite: its main script and its bible_search_ui package."""
+    return bool(folder) and os.path.exists(os.path.join(folder, BSL_SCRIPT)) and \
+        os.path.isdir(os.path.join(folder, "bible_search_ui"))
+
+
+def find_bsl_dir():
+    """Bible Search Lite's folder beside this program's (bible-search-lite under ~/projects); None when not there."""
+    places = [PARENT_DIR]
+    built = source_of_build()
+    if built:
+        places.append(os.path.dirname(built))
+    for place in places:
+        for name in BSL_FOLDER_NAMES:
+            folder = os.path.join(place, name)
+            if is_bsl_dir(folder):
+                return folder
+    return None
+
+
+def bsl_version(bsl_dir):
+    """Bible Search Lite's version from its VERSION.txt ('v1.1.6' -> '1.1.6'), or ''."""
+    try:
+        with open(os.path.join(bsl_dir, "VERSION.txt"), encoding="utf-8") as f:
+            return f.read().strip().lstrip("vV")
+    except (OSError, TypeError):
+        return ""
+
+
+def bsl_files(bsl_dir):
+    """
+    Bible Search Lite's program files, as paths under its folder with /
+    between folders: every file its update_files.txt names (the list its
+    own updater keeps, so a module it imports is never left behind),
+    with the extras beside them.  Without that list: its top-level
+    program files and every .py of its packages.
+    """
+    names = []
+    listing = os.path.join(bsl_dir, "update_files.txt")
+    if os.path.exists(listing):
+        with open(listing, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    names.append(line.replace("\\", "/"))
+    else:
+        names = [n for n in program_files(bsl_dir) if not n.startswith("test_")]
+        for package in ("bible_search_ui", "services"):
+            for root, dirs, files in os.walk(os.path.join(bsl_dir, package)):
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                names += [os.path.relpath(os.path.join(root, n), bsl_dir).replace(os.sep, "/")
+                          for n in files if n.endswith(".py")]
+    names += list(BSL_EXTRA_FILES)
+    seen, out = set(), []
+    for name in names:
+        if name not in seen and os.path.isfile(os.path.join(bsl_dir, *name.split("/"))):
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def bsl_database(bsl_dir):
+    """The path of Bible Search Lite's bibles.db, or None when it is not there."""
+    path = os.path.join(bsl_dir, *BSL_DATABASE.split("/")) if bsl_dir else ""
+    return path if path and os.path.exists(path) else None
+
+
 def atlas_version(atlas_dir):
     return read_version(os.path.join(atlas_dir, "atlas_pages.py")) if atlas_dir else ""
 
@@ -321,37 +409,91 @@ def newest_dataset(atlas_dir=None, reader_dir=None):
     return None
 
 
+def newest_run(results_path):
+    """(run_id, started) of the newest run in a results.db, or None when it holds none or cannot be read."""
+    try:
+        db = sqlite3.connect("file:" + results_path.replace("\\", "/") + "?mode=ro", uri=True)
+        try:
+            row = db.execute("SELECT run_id, started FROM runs ORDER BY run_id DESC LIMIT 1").fetchone()
+        finally:
+            db.close()
+        return tuple(row) if row else None
+    except sqlite3.Error:
+        return None
+
+
 def results_newer_than(dataset, atlas_dir):
-    """True when Word Atlas's results.db was written after the dataset was packed (a fresh pack is due)."""
+    """
+    True when Word Atlas's results.db holds a run the dataset does not:
+    a fresh pack is due.  Judged by the runs themselves, the newest
+    run's start time against the runs the dataset's manifest lists
+    (0.10.108).  Until then it was judged by the files' dates, and
+    anything that opened results.db for writing (a test, the sources
+    table refreshed) made a pack look due when the pages were the same.
+    """
     results = os.path.join(atlas_dir, "reports", "results.db") if atlas_dir else ""
     if not results or not os.path.exists(results):
         return False
-    return dataset is None or os.path.getmtime(results) > os.path.getmtime(dataset) + 1
+    newest = newest_run(results)
+    if newest is None:
+        return False
+    if dataset is None:
+        return True
+    try:
+        with zipfile.ZipFile(dataset) as z:
+            manifest = json.loads(z.read("manifest.json").decode("utf-8"))
+        packed = {r.get("started") for r in manifest.get("runs", [])}
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        # A dataset without a readable manifest: the dates are all there is
+        return os.path.getmtime(results) > os.path.getmtime(dataset) + 1
+    return newest[1] not in packed
 
 
-def pack_dataset(results_path, out_dir, note="", log=print):
+def pack_dataset(results_path, out_dir, note="", log=print, atlas_dir=None):
     """
-    Pack a results.db into a .wadb named after its newest run, the way
-    atlas_pack.py does (the same members, the same manifest), without
-    needing the main program.  Returns the archive's path.
+    Pack a results.db into a .wadb with Word Atlas's own atlas_pack.py,
+    run as a program of its own, so the dataset is exactly what a pack
+    from Word Atlas makes: the newest run only, the named passages, the
+    King James text, the sources table, and the checks that refuse an
+    old results file.  Returns the archive's path.
+
+    Until 0.10.108 this zipped results.db as it stood, with every run in
+    it and none of the tables atlas_pack.py adds, under the same name as
+    the proper pack, which it replaced.
+
+    atlas_dir is Word Atlas's folder; by default the one results_path is
+    in (word_atlas/reports/results.db).  A built copy of the Reader, with
+    no Python to run atlas_pack.py, cannot pack: Word Atlas packs.
     """
-    db = sqlite3.connect("file:" + results_path.replace("\\", "/") + "?mode=ro", uri=True)
-    runs = [{"run_id": r[0], "version": r[1], "started": r[2], "note": r[3],
-             "pages": db.execute("SELECT COUNT(*) FROM pages WHERE run_id = ?", (r[0],)).fetchone()[0]}
-            for r in db.execute("SELECT run_id, version, started, note FROM runs ORDER BY run_id")]
-    db.close()
-    if not runs:
+    atlas_dir = atlas_dir or os.path.dirname(os.path.dirname(os.path.abspath(results_path)))
+    script = os.path.join(atlas_dir, "atlas_pack.py")
+    if not os.path.exists(script):
+        raise OSError(f"{script} not found: a fresh dataset is packed by Word Atlas's atlas_pack.py")
+    if getattr(sys, "frozen", False):
+        raise OSError("This built copy of the Reader cannot run atlas_pack.py: pack the dataset in Word Atlas "
+                      "(python3 atlas_pack.py), then build the drive again")
+    newest = newest_run(results_path)
+    if newest is None:
         raise ValueError(f"{results_path} holds no run yet")
-    newest = runs[-1]
-    manifest = {"format": "Word Atlas dataset", "program_version": newest["version"],
-                "packed": time.strftime("%Y-%m-%d %H:%M:%S"), "note": note, "runs": runs}
+    db = sqlite3.connect("file:" + results_path.replace("\\", "/") + "?mode=ro", uri=True)
+    version = db.execute("SELECT version FROM runs WHERE run_id = ?", (newest[0],)).fetchone()[0]
+    db.close()
     os.makedirs(out_dir, exist_ok=True)
-    out = os.path.join(out_dir, f"word_atlas_{newest['version']}_{newest['started'][:10]}.wadb")
-    log(f"Packing {os.path.basename(results_path)} ({mb(os.path.getsize(results_path))}) ...")
-    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-        z.write(results_path, "results.db")
-        z.writestr("manifest.json", json.dumps(manifest, indent=2))
-    log(f"  packed into {os.path.basename(out)} ({mb(os.path.getsize(out))})")
+    out = os.path.join(out_dir, f"word_atlas_{version}_{newest[1][:10]}.wadb")
+    log(f"Packing {os.path.basename(results_path)} with atlas_pack.py ...")
+    command = [sys.executable, script, "--results", results_path, "--out", out]
+    if note:
+        command += ["--note", note]
+    process = subprocess.Popen(command, cwd=atlas_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, encoding="utf-8", errors="replace")
+    lines = []
+    for line in process.stdout:
+        line = line.rstrip()
+        if line:
+            lines.append(line)
+            log("  " + line)
+    if process.wait() != 0 or not os.path.exists(out):
+        raise OSError("atlas_pack.py did not make the dataset: " + (lines[-1] if lines else "no output"))
     return out
 
 
@@ -696,6 +838,8 @@ def default_options(atlas_dir=None, reader_dir=None):
         "keep_old": False,        # keep datasets already on the drive that are not this one
         "sync": True,             # end by flushing every disk, so the drive can be pulled (the tests turn it off)
         "verify": False,          # compare every file by checksum, not by size and date
+        "bsl": False,             # Bible Search Lite with its bibles.db: large, so only when ticked
+        "bsl_dir": find_bsl_dir(),
     }
 
 
@@ -739,6 +883,16 @@ def gather(options, atlas_dir=None, reader_dir=None, wheels=()):
         for d in atlas_data_choices(atlas_dir):
             if d["key"] in wanted and d["path"]:
                 items.append(Item(d["path"], "data/word_atlas/" + d["rel"], "atlas_data"))
+    bsl_dir = options.get("bsl_dir")
+    if options.get("bsl") and is_bsl_dir(bsl_dir):
+        # Its program files, then its database in its own group, so the
+        # drive's list says how much of the drive is the database
+        groups.update(("bsl", "bsl_data"))
+        for name in bsl_files(bsl_dir):
+            items.append(Item(os.path.join(bsl_dir, *name.split("/")), "programs/bible_search_lite/" + name, "bsl"))
+        database = bsl_database(bsl_dir)
+        if database:
+            items.append(Item(database, "programs/bible_search_lite/" + BSL_DATABASE, "bsl_data"))
     if options.get("wheels") and wheels:
         groups.add("wheels")
         for system, path in wheels:
@@ -852,7 +1006,7 @@ if /i "%ANSWER%"=="n" goto howto
 goto built
 
 :howto
-echo To install Word Atlas or the Reader from this drive, first install Python:
+echo To install the programs on this drive, first install Python:
 echo     1. Go to https://www.python.org/downloads/ and download Python 3.
 echo     2. Run it and tick "Add python.exe to PATH" on its first screen.
 echo     3. Double-click Install-Windows.bat again.
@@ -904,6 +1058,10 @@ def readme_text(manifest):
         lines.append(f"  Word Atlas {atlas['version']}: the program that builds the atlas and writes the results.")
         if manifest.get("atlas_data"):
             lines.append("      with " + ", ".join(manifest["atlas_data"]))
+    bsl = manifest.get("bsl")
+    if bsl:
+        lines.append(f"  Bible Search Lite {bsl.get('version', '')}: searches the English translations of the Bible"
+                     + (", with its bibles.db." if bsl.get("database") else " (no bibles.db on this drive)."))
     if manifest.get("wheels"):
         lines.append("  PyQt6 " + manifest["wheels"].get("PyQt6", "") + " for Windows and Linux, so installing needs no internet.")
     if manifest.get("builds"):
@@ -920,7 +1078,8 @@ def readme_text(manifest):
               "  and start the program again.",
               "",
               "Either way the installer asks which program to install (the Reader, Word Atlas,",
-              "or both) and where, copies it with its data, sees to PyQt6, and leaves an entry",
+              "Bible Search Lite when the drive carries it, or all) and where, copies it with",
+              "its data, sees to PyQt6, and leaves an entry",
               "in the Start menu (Windows: also on the Desktop) to start it by.  Running the",
               "installer again from a newer drive brings an earlier install up to date; your",
               "own files (metadata.db, reports, kept builds, settings) are never replaced.",
@@ -939,6 +1098,9 @@ def readme_text(manifest):
               "  counts made from the cross references and the links are Word Atlas's",
               "  adaptation, under CC BY.  ATTRIBUTION.md in Word Atlas's folder, and the",
               "  Reader's About box, list every source with its license and credit line.",
+              "",
+              "  Bible Search Lite's bibles.db, when present, holds translations still under",
+              "  copyright beside the free ones: check before passing the drive on.",
               "",
               "The programs are released under the MIT licence.  Andrew Hopkins, with Claude.",
               ""]
@@ -1083,13 +1245,18 @@ def _manifest(old, files, options, atlas_dir, reader_dir, wheel_versions, groups
         "written_by": f"{'Word Atlas' if home_app() == 'atlas' else 'Word Atlas Reader'} on "
                       f"{platform.node() or 'this computer'} ({platform.system()})",
         "complete": not stopped,
-        "reader": old.get("reader"), "atlas": old.get("atlas"),
+        "reader": old.get("reader"), "atlas": old.get("atlas"), "bsl": old.get("bsl"),
         "wheels": old.get("wheels", {}),
     }
     if "reader" in groups:
         manifest["reader"] = {"version": reader_version(reader_dir)}
     if "atlas" in groups:
         manifest["atlas"] = {"version": atlas_version(atlas_dir)}
+    if "bsl" in groups:
+        manifest["bsl"] = {"version": bsl_version(options.get("bsl_dir")),
+                           "database": any(e.get("group") == "bsl_data" for e in files.values())}
+    elif manifest.get("bsl") and not any(e.get("group") == "bsl" for e in files.values()):
+        manifest["bsl"] = None
     if "wheels" in groups and wheel_versions:
         manifest["wheels"] = wheel_versions
     # These three are read back from the file list, so they are right
@@ -1152,6 +1319,8 @@ def describe_drive(drive_path, brief=False):
         if manifest.get("atlas"):
             data = ", ".join(manifest.get("atlas_data", []))
             parts.append(f"Word Atlas {manifest['atlas'].get('version', '?')}" + (f" with {data}" if data else ""))
+        if manifest.get("bsl"):
+            parts.append(f"Bible Search Lite {manifest['bsl'].get('version', '?')}")
         if manifest.get("wheels"):
             parts.append(f"PyQt6 {manifest['wheels'].get('PyQt6', '?')}")
         if manifest.get("builds"):
@@ -1169,6 +1338,9 @@ def describe_drive(drive_path, brief=False):
     if manifest.get("atlas"):
         data = ", ".join(manifest.get("atlas_data", [])) or "no built databases"
         lines.append(f"  Word Atlas {manifest['atlas'].get('version', '?')} with {data}")
+    if manifest.get("bsl"):
+        lines.append(f"  Bible Search Lite {manifest['bsl'].get('version', '?')}"
+                     + (" with bibles.db" if manifest["bsl"].get("database") else " (no bibles.db)"))
     if manifest.get("wheels"):
         lines.append(f"  PyQt6 {manifest['wheels'].get('PyQt6', '?')} for Windows and Linux")
     if manifest.get("builds"):
@@ -1248,6 +1420,14 @@ def main(argv):
     options["guest_key"] = "--guest-key" in flags
     options["keep_old"] = "--keep-old" in flags
     options["verify"] = "--verify" in flags
+    if "--bsl-dir" in values:
+        options["bsl_dir"] = os.path.abspath(os.path.expanduser(values["--bsl-dir"]))
+    if "--bsl" in flags or "--bsl-dir" in values:
+        options["bsl"] = True
+        if not is_bsl_dir(options["bsl_dir"]):
+            print(f"Bible Search Lite was not found ({options['bsl_dir'] or 'no bible-search-lite beside this folder'}): "
+                  "give its folder with --bsl-dir FOLDER")
+            return 1
     if cmd == "status":
         print(describe_drive(plain[0]))
         # What a build would change, without fetching anything
@@ -1263,6 +1443,8 @@ def main(argv):
     if cmd == "build":
         print(f"Word Atlas: {atlas_dir or 'not found'}" + (f" ({atlas_version(atlas_dir)})" if atlas_dir else ""))
         print(f"Reader:     {reader_dir or 'not found'}" + (f" ({reader_version(reader_dir)})" if reader_dir else ""))
+        if options["bsl"]:
+            print(f"Bible Search Lite: {options['bsl_dir']} ({bsl_version(options['bsl_dir'])})")
         try:
             build(plain[0], options, atlas_dir, reader_dir)
         except OSError as e:

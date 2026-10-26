@@ -2,12 +2,14 @@
 """
 The Word Atlas installer  (install.py on a Word Atlas drive)
 
-Installs the Word Atlas Reader, Word Atlas, or both, with their data,
+Installs the Word Atlas Reader, Word Atlas, Bible Search Lite (when
+the drive carries it, 0.10.107), or all of them, with their data,
 from the folder this file is in to this computer.  It is started by
 Install-Windows.bat (Windows) or install-linux.sh (Linux), or directly:
 
     python3 install.py                     ask what to install and where
-    python3 install.py --app reader        the Reader only   (atlas, both)
+    python3 install.py --app reader        the Reader only   (atlas, bsl, both = Reader and
+                                           Word Atlas, all = every program on the drive)
     python3 install.py --dest FOLDER       install into FOLDER, not ~/WordAtlas
     python3 install.py --yes               take the usual answer to every question
     python3 install.py --force             replace even files that are newer here
@@ -50,6 +52,7 @@ import os
 import platform
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -60,15 +63,19 @@ ROOT = os.path.dirname(os.path.abspath(__file__))       # the WordAtlas folder o
 MANIFEST_NAME = "usb_manifest.json"
 WINDOWS = os.name == "nt"
 
-# The two programs: the key used on the command line, the name shown,
-# the folder under programs/ on the drive and under the install folder,
-# the script that starts it
+# The programs: the key used on the command line, the name shown, the
+# folder under programs/ on the drive and under the install folder, the
+# script that starts it, and (Bible Search Lite) its icon for the menu
 APPS = {
     "reader": {"name": "Word Atlas Reader", "folder": "word_atlas_reader", "script": "word_atlas_reader.py",
                "about": "a viewer for the results of a Word Atlas run"},
     "atlas": {"name": "Word Atlas", "folder": "word_atlas", "script": "word_atlas.py",
               "about": "the program that builds the atlas and writes the results"},
+    "bsl": {"name": "Bible Search Lite", "folder": "bible_search_lite", "script": "bible_search_lite.py",
+            "about": "searches the English translations of the Bible",
+            "icon_linux": "bible_search_lite.png", "icon_windows": "bible_search_lite.ico"},
 }
+ORDER = ("reader", "atlas", "bsl")         # the order the programs are offered in
 
 
 def say(text=""):
@@ -127,6 +134,9 @@ def describe(manifest):
     if manifest.get("atlas"):
         data = ", ".join(manifest.get("atlas_data", [])) or "no built databases"
         lines.append(f"  Word Atlas {manifest['atlas'].get('version', '?')}, with {data}")
+    if manifest.get("bsl"):
+        lines.append(f"  Bible Search Lite {manifest['bsl'].get('version', '?')}"
+                     + (", with its bibles.db" if manifest["bsl"].get("database") else ", without bibles.db"))
     if manifest.get("wheels"):
         lines.append(f"  PyQt6 {manifest['wheels'].get('PyQt6', '?')} for Windows and Linux")
     return lines
@@ -258,6 +268,27 @@ def install_atlas(manifest, dest, copier):
             "  Builds > Build atlas.db makes one (it needs atlas_source.db, which the drive can carry,\n"
             "  or bibles.db beside the program).")
     return app_dir
+
+
+def install_bsl(manifest, dest, copier):
+    """
+    Bible Search Lite's program files and its bibles.db into
+    dest/bible_search_lite.  Its subjects.db and settings are made by the
+    program on its first start, and one already there is the user's own:
+    the drive carries neither, so neither is ever replaced.
+    """
+    app_dir = os.path.join(dest, APPS["bsl"]["folder"])
+    prefix = "programs/bible_search_lite/"
+    for group in ("bsl", "bsl_data"):
+        for rel, entry in files_of(manifest, group):
+            copier.copy(rel, entry, os.path.join(app_dir, *rel[len(prefix):].split("/")))
+    if not os.path.exists(os.path.join(app_dir, "database", "bibles.db")):
+        say("  Note: this drive carries no bibles.db, and Bible Search Lite cannot search without it.  Copy\n"
+            "  database/bibles.db from a computer that has it into " + os.path.join(app_dir, "database"))
+    return app_dir
+
+
+INSTALLERS = {"reader": lambda m, d, c: install_reader(m, d, c)[0], "atlas": install_atlas, "bsl": install_bsl}
 
 
 # ---------------------------------------------------------------------------
@@ -489,8 +520,11 @@ def make_shortcuts(starters):
                           f"$s.TargetPath = '{q(python)}'",
                           f"$s.Arguments = '\"{q(starter)}\"'",
                           f"$s.WorkingDirectory = '{q(os.path.dirname(starter))}'",
-                          f"$s.Description = '{q(APPS[key]['about'])}'",
-                          "$s.Save()"]
+                          f"$s.Description = '{q(APPS[key]['about'])}'"]
+                icon = app_icon(key, starter, "icon_windows")
+                if icon:
+                    lines.append(f"$s.IconLocation = '{q(icon)}'")
+                lines.append("$s.Save()")
         script = os.path.join(os.path.dirname(next(iter(starters.values()))), "make_shortcuts.ps1")
         try:
             with open(script, "w", encoding="utf-8-sig") as f:      # with the mark PowerShell reads UTF-8 by
@@ -511,16 +545,27 @@ def make_shortcuts(starters):
             for key, starter in starters.items():
                 app = APPS[key]
                 path = os.path.join(folder, app["folder"].replace("_", "-") + ".desktop")
+                icon = app_icon(key, starter, "icon_linux")
                 with open(path, "w", encoding="utf-8") as f:
                     f.write("[Desktop Entry]\nType=Application\n"
                             f"Name={app['name']}\nComment={app['about']}\n"
                             f"Exec=\"{sys.executable}\" \"{starter}\"\n"
-                            f"Path={os.path.dirname(starter)}\nTerminal=false\nCategories=Education;\n")
+                            + (f"Icon={icon}\n" if icon else "")
+                            + f"Path={os.path.dirname(starter)}\nTerminal=false\nCategories=Education;\n")
                 os.chmod(path, 0o755)
                 made.append(f"{app['name']} (the applications menu)")
         except OSError:
             pass
     return made
+
+
+def app_icon(key, starter, which):
+    """The icon file a program carries for the menu (Bible Search Lite's), when it is installed; else ''."""
+    name = APPS[key].get(which)
+    if not name:
+        return ""
+    path = os.path.join(os.path.dirname(starter), APPS[key]["folder"], name)
+    return path if os.path.exists(path) else ""
 
 
 def start_command(starter):
@@ -554,8 +599,9 @@ def record_files(dest, manifest, keys):
     for key in keys:
         app_dir = APPS[key]["folder"]
         files = {}
-        groups = (("reader", "programs/word_atlas_reader/"), ("dataset", None)) if key == "reader" else \
-            (("atlas", "programs/word_atlas/"), ("atlas_data", "data/word_atlas/"))
+        groups = {"reader": (("reader", "programs/word_atlas_reader/"), ("dataset", None)),
+                  "atlas": (("atlas", "programs/word_atlas/"), ("atlas_data", "data/word_atlas/")),
+                  "bsl": (("bsl", "programs/bible_search_lite/"), ("bsl_data", "programs/bible_search_lite/"))}[key]
         for group, prefix in groups:
             for rel, entry in files_of(manifest, group):
                 if prefix is None:          # a dataset goes into the Reader's datasets folder
@@ -615,8 +661,8 @@ class InstallCheck:
                      "not the install folder.")
             self.problem("No install found in " + dest,
                          "Give the folder the programs were installed into: install.py --check --dest FOLDER")
-        for key in ("reader", "atlas"):
-            if key in record:
+        for key in ORDER:
+            if record.get(key):
                 self.program(key, record[key], files.get(key, {}))
         if copier is not None:
             self.copy_step(copier)
@@ -702,6 +748,8 @@ class InstallCheck:
                              "put back the drive's copies.")
         if key == "reader":
             self.datasets(app_dir)
+        if key == "bsl":
+            self.bible_database(app_dir)
         error_log = os.path.join(self.dest, "start_error.txt")
         if os.path.exists(error_log):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(error_log)))
@@ -760,6 +808,29 @@ class InstallCheck:
                 self.problem("The Reader's last dataset is no longer there: " + last,
                              "Open a dataset with File > Open; the Reader remembers it.")
 
+    def bible_database(self, app_dir):
+        """Bible Search Lite's bibles.db: there, a SQLite file that opens, and how many translations it holds."""
+        path = os.path.join(app_dir, "database", "bibles.db")
+        if not os.path.exists(path):
+            self.say("  Database    NO bibles.db")
+            self.problem("Bible Search Lite has no database/bibles.db",
+                         "Run the installer again from a drive made with Bible Search Lite ticked, or copy "
+                         "database/bibles.db into " + os.path.join(app_dir, "database") + ".")
+            return
+        try:
+            db = sqlite3.connect("file:" + path.replace("\\", "/") + "?mode=ro", uri=True)
+            try:
+                tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+                count = db.execute("SELECT COUNT(*) FROM translations").fetchone()[0] if "translations" in tables else None
+            finally:
+                db.close()
+            self.say(f"  Database    bibles.db, {os.path.getsize(path) / 1e6:.0f} MB, opens"
+                     + (f", {count} translations" if count is not None else ""))
+        except sqlite3.Error as e:
+            self.say(f"  Database    bibles.db DOES NOT OPEN: {e}")
+            self.problem(f"Bible Search Lite's bibles.db does not open ({e})",
+                         "Run the installer again with --force to copy it afresh from the drive.")
+
     def copy_step(self, copier):
         self.say("This run of the installer")
         self.say(f"  Copied      {copier.copied} file(s) ({mb(copier.copied_bytes)}); {copier.same} already up to date")
@@ -771,7 +842,7 @@ class InstallCheck:
             for line in copier.failed[:6]:
                 self.say("      could not write: " + line)
             self.problem(f"{len(copier.failed)} file(s) could not be written",
-                         "Close Word Atlas and the Reader if they are open (Windows will not replace a file in "
+                         "Close the installed programs if they are open (Windows will not replace a file in "
                          "use), and run the installer again.")
         self.say("")
 
@@ -897,28 +968,33 @@ def main(argv):
         say("Note: the last build of this drive was stopped part way; some files may be missing.")
     if "--list" in flags:
         return 0
-    offered = [k for k in ("reader", "atlas") if manifest.get(k)]
+    offered = [k for k in ORDER if manifest.get(k)]
     if not offered:
-        say("The drive holds neither program.  Make it again from Word Atlas or the Reader.")
+        say("The drive holds no program.  Make it again from Word Atlas or the Reader.")
         return 1
 
-    # Which program
+    # Which program: a numbered list of those the drive holds, and all of them
     chosen = values.get("--app", "")
-    if chosen not in ("reader", "atlas", "both"):
+    if chosen not in ("reader", "atlas", "bsl", "both", "all"):
         if len(offered) == 1:
             chosen = offered[0]
         else:
             say()
             say("Install which?")
-            say("  1. Word Atlas Reader   " + APPS["reader"]["about"])
-            say("  2. Word Atlas          " + APPS["atlas"]["about"])
-            say("  3. Both")
-            answer = ask("Type 1, 2 or 3 and press Enter [1]: ", "1", yes)
-            chosen = {"1": "reader", "2": "atlas", "3": "both"}.get(answer, "")
+            menu = {}
+            for i, key in enumerate(offered, 1):
+                menu[str(i)] = key
+                say(f"  {i}. {APPS[key]['name']:<20} {APPS[key]['about']}")
+            menu[str(len(offered) + 1)] = "all"
+            say(f"  {len(offered) + 1}. All of them")
+            numbers = ", ".join(list(menu)[:-1]) + " or " + list(menu)[-1]
+            answer = ask(f"Type {numbers} and press Enter [1]: ", "1", yes)
+            chosen = menu.get(answer, "")
             if not chosen:
                 say("Nothing installed.")
                 return 0
-    keys = [k for k in (("reader", "atlas") if chosen == "both" else (chosen,)) if k in offered]
+    wanted = {"both": ("reader", "atlas"), "all": ORDER}.get(chosen, (chosen,))
+    keys = [k for k in wanted if k in offered]
     if not keys:
         say(f"The drive does not hold that program ({chosen}).")
         return 1
@@ -945,10 +1021,7 @@ def main(argv):
     installed = {}
     for key in keys:
         say(f"{APPS[key]['name']} {manifest[key].get('version', '')} into {os.path.join(dest, APPS[key]['folder'])}")
-        if key == "reader":
-            installed[key] = install_reader(manifest, dest, copier)[0]
-        else:
-            installed[key] = install_atlas(manifest, dest, copier)
+        installed[key] = INSTALLERS[key](manifest, dest, copier)
     say(f"  {copier.copied} file(s) copied ({mb(copier.copied_bytes)}), {copier.same} already up to date.")
     if copier.kept_newer:
         say(f"  {len(copier.kept_newer)} file(s) are newer on this computer than on the drive and were left alone:")
@@ -956,7 +1029,7 @@ def main(argv):
             say("      " + path)
         say("  (run the installer with --force to replace them with the drive's)")
     if copier.failed:
-        say(f"  {len(copier.failed)} file(s) COULD NOT BE WRITTEN.  Close Word Atlas and the Reader if they are "
+        say(f"  {len(copier.failed)} file(s) COULD NOT BE WRITTEN.  Close the installed programs if they are "
             "open, and run the installer again:")
         for line in copier.failed[:12]:
             say("      " + line)

@@ -62,7 +62,7 @@ class BuildWorker(QObject):
                 return
             if self.pack_from:
                 self.options["dataset"] = atlas_usb.pack_dataset(self.pack_from, os.path.dirname(self.pack_from),
-                                                                 log=self.log.emit)
+                                                                 log=self.log.emit, atlas_dir=self.atlas_dir)
             atlas_usb.build(self.drive, self.options, self.atlas_dir, self.reader_dir, log=self.log.emit,
                             progress=self._progress, cancelled=lambda: self.stop)
             self.finished.emit(True, "The drive is ready.")
@@ -85,6 +85,8 @@ class UsbDialog(QDialog):
         # The two programs: where this copy finds them, or where the user said they are
         self.atlas_dir = self._known_dir("atlas_dir", atlas_usb.find_atlas_dir(), "word_atlas.py")
         self.reader_dir = self._known_dir("reader_dir", atlas_usb.find_reader_dir(), "word_atlas_reader.py")
+        # Bible Search Lite (0.10.107): beside this program's folder, or where the user pointed last time
+        self.bsl_dir = self._known_dir("bsl_dir", atlas_usb.find_bsl_dir(), atlas_usb.BSL_SCRIPT)
         self.dataset = dataset if dataset and dataset.endswith(".wadb") else \
             atlas_usb.newest_dataset(self.atlas_dir, self.reader_dir)
         self.thread = None
@@ -128,7 +130,7 @@ class UsbDialog(QDialog):
 
     def _build(self):
         box = QVBoxLayout(self)
-        intro = QLabel("A drive made here installs the Word Atlas Reader, Word Atlas, or both, with their data, on a "
+        intro = QLabel("A drive made here installs the Word Atlas Reader, Word Atlas and Bible Search Lite, any or all, with their data, on a "
                        "Windows or Linux computer.  Everything goes into one folder on the drive, WordAtlas; nothing "
                        "else on the drive is touched.  Press the button again another day and only what has changed "
                        "is copied.")
@@ -196,9 +198,9 @@ class UsbDialog(QDialog):
         row.addWidget(choose)
         g.addLayout(row)
         self.dataset_note = self._note(g)       # its size, runs, pages and date
-        self.pack_box = self._fit(QCheckBox("Pack a fresh dataset first (results.db is newer than this one)"))
+        self.pack_box = self._fit(QCheckBox("Pack a fresh dataset first (results.db holds a newer run than this one)"))
         self.pack_box.setToolTip("Run atlas_pack.py before the drive is made, so the drive carries the pages of "
-                                 "the newest canon run: results.db is newer than the dataset named above")
+                                 "the newest canon run, which the dataset named above does not hold")
         self.pack_box.toggled.connect(self.update_plan)
         g.addWidget(self.pack_box)
         self.keep_box = self._fit(QCheckBox("Keep the older datasets already on the drive"))
@@ -229,6 +231,22 @@ class UsbDialog(QDialog):
         g.addWidget(self.data_label)
         self.data_grid = QGridLayout()
         g.addLayout(self.data_grid)
+        box.addWidget(group)
+
+        # Bible Search Lite and its bibles.db (0.10.107)
+        group = QGroupBox("Bible Search Lite")
+        g = QVBoxLayout(group)
+        row = QHBoxLayout()
+        self.bsl_box = self._fit(QCheckBox())
+        self.bsl_box.setToolTip(atlas_usb.BSL_NOTE)
+        self.bsl_box.toggled.connect(self.update_plan)
+        row.addWidget(self.bsl_box, 1)
+        self.bsl_find = QPushButton("Find...")
+        self.bsl_find.setToolTip("Say which folder holds Bible Search Lite (bible_search_lite.py)")
+        self.bsl_find.clicked.connect(lambda: self.find_program("bsl"))
+        row.addWidget(self.bsl_find)
+        g.addLayout(row)
+        self.bsl_note = self._note(g)           # the folder, the size, and the word about copyright
         box.addWidget(group)
 
         # PyQt6
@@ -325,6 +343,34 @@ class UsbDialog(QDialog):
                 self.data_boxes[d["key"]] = check
                 self.data_grid.addWidget(check, i // 2, i % 2)
         self.atlas_toggled(self.atlas_box.isChecked())
+        self.fill_bsl()
+
+    def fill_bsl(self):
+        """Say whether Bible Search Lite was found, how large it is, and what to mind before passing it on."""
+        found = atlas_usb.is_bsl_dir(self.bsl_dir)
+        if found:
+            database = atlas_usb.bsl_database(self.bsl_dir)
+            files = atlas_usb.bsl_files(self.bsl_dir)
+            size = sum(os.path.getsize(os.path.join(self.bsl_dir, *n.split("/"))) for n in files)
+            size += os.path.getsize(database) if database else 0
+            self.bsl_box.setText(f"Bible Search Lite {atlas_usb.bsl_version(self.bsl_dir)}, with its bibles.db "
+                                 f"({atlas_usb.mb(size)})")
+            self.bsl_note.setText(f"from {self.bsl_dir}.  "
+                                  + ("" if database else "NO database/bibles.db THERE: the program would go "
+                                                         "without the Bibles it searches.  ")
+                                  + "Installs on Ubuntu and Windows 11 like the others.  bibles.db holds "
+                                    "translations still under copyright beside the free ones: fine for your own "
+                                    "computers, but check before handing the drive to someone else.  Your "
+                                    "subjects and settings stay on this computer.")
+            self.bsl_box.setEnabled(True)
+            self.bsl_box.setChecked(bool(self.settings.get("bsl", False)))
+        else:
+            self.bsl_box.setText("Bible Search Lite was not found beside this program: Find... says where it is")
+            self.bsl_note.setText("")
+            self.bsl_box.setEnabled(False)
+            self.bsl_box.setChecked(False)
+        self.bsl_find.setVisible(not found)
+        self.bsl_note.setVisible(found)
 
     def show_dataset(self):
         """Name the dataset that would go on the drive, and offer a fresh pack when results.db is newer."""
@@ -396,8 +442,8 @@ class UsbDialog(QDialog):
 
     def find_program(self, which):
         """Let the user say where the other program is, when it is not in the folder beside this one."""
-        marker = "word_atlas.py" if which == "atlas" else "word_atlas_reader.py"
-        name = "Word Atlas" if which == "atlas" else "the Word Atlas Reader"
+        marker = {"atlas": "word_atlas.py", "reader": "word_atlas_reader.py", "bsl": atlas_usb.BSL_SCRIPT}[which]
+        name = {"atlas": "Word Atlas", "reader": "the Word Atlas Reader", "bsl": "Bible Search Lite"}[which]
         folder = QFileDialog.getExistingDirectory(self, f"Which folder holds {name} ({marker})?", atlas_usb.PARENT_DIR)
         if not folder:
             return
@@ -406,6 +452,8 @@ class UsbDialog(QDialog):
             return
         if which == "atlas":
             self.atlas_dir = folder
+        elif which == "bsl":
+            self.bsl_dir = folder
         else:
             self.reader_dir = folder
         self.settings[which + "_dir"] = folder
@@ -434,6 +482,8 @@ class UsbDialog(QDialog):
             "guest_key": self.guest_box.isVisible() and self.guest_box.isChecked(),
             "keep_old": self.keep_box.isChecked(),
             "verify": False,
+            "bsl": self.bsl_box.isEnabled() and self.bsl_box.isChecked(),
+            "bsl_dir": self.bsl_dir,
         }
 
     def update_plan(self, *_):
@@ -468,7 +518,7 @@ class UsbDialog(QDialog):
         if free and need > free:
             text += f"  THE DRIVE HAS ONLY {atlas_usb.mb(free)} FREE: untick some of the data, or use a larger drive."
         self.plan_label.setText(text)
-        self.build_button.setEnabled(bool(options["reader"] or options["atlas"] or options["dataset"]))
+        self.build_button.setEnabled(bool(options["reader"] or options["atlas"] or options["dataset"] or options["bsl"]))
 
     # --- building -------------------------------------------------------------------------
     def start(self, check_only=False):
@@ -481,7 +531,8 @@ class UsbDialog(QDialog):
             self.settings.update({"drive": drive, "reader": options["reader"], "atlas": options["atlas"],
                                   "atlas_data": options["atlas_data"], "wheels": options["wheels"],
                                   "atlas_data_known": [k for k, c in self.data_boxes.items() if c.isEnabled()],
-                                  "guest_key": options["guest_key"], "keep_old": options["keep_old"]})
+                                  "guest_key": options["guest_key"], "keep_old": options["keep_old"],
+                                  "bsl": options["bsl"]})
             atlas_usb.save_settings(self.settings)
         pack_from = None
         if not check_only and self.pack_box.isVisible() and self.pack_box.isChecked() and self.atlas_dir:

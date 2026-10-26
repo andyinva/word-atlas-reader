@@ -548,6 +548,155 @@ class Dataset:
             out.append((ch, v, text, t))
         return out
 
+    # --- the themes (Word Atlas 0.10.109) ---------------------------------
+    # A theme is a hand-made set of verses (land and inheritance).  The
+    # main program worked out everything about it when it loaded the
+    # theme: every verse with its role and text, and per chapter the
+    # counts, the expected counts, the lift and the colour to draw.  The
+    # Reader only reads those rows; nothing here counts or divides.
+
+    def has_themes(self):
+        """True when the file holds at least one theme."""
+        if not self._has("theme", "theme_verse", "theme_strip"):
+            return False
+        return self.db.execute("SELECT 1 FROM theme LIMIT 1").fetchone() is not None
+
+    def themes(self):
+        """The themes, by name: [dict of the theme table's columns]."""
+        if not self.has_themes():
+            return []
+        return [dict(r) for r in self.db.execute("SELECT * FROM theme ORDER BY name")]
+
+    def theme_strip(self, theme_id):
+        """The strip of one theme, one dict per chapter in canonical order, as stored."""
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM theme_strip WHERE theme_id = ? ORDER BY position", (theme_id,))]
+
+    def theme_verses(self, theme_id, book=None, chapter=None):
+        """The verses of one theme in canonical order (of one chapter when asked), as stored."""
+        sql = "SELECT * FROM theme_verse WHERE theme_id = ?"
+        args = [theme_id]
+        if book is not None:
+            sql += " AND book = ? AND chapter = ?"
+            args += [book, chapter]
+        return [dict(r) for r in self.db.execute(sql + " ORDER BY position", args)]
+
+    def theme_problems(self, theme_id):
+        """[(reference, problem)] the main program could not place."""
+        if not self._has("theme_problem"):
+            return []
+        return [tuple(r) for r in self.db.execute(
+            "SELECT reference, problem FROM theme_problem WHERE theme_id = ?", (theme_id,))]
+
+    def theme_terms(self, theme_id):
+        """[(Strong's number, root, note)] of one theme's companion terms."""
+        if not self._has("theme_term"):
+            return []
+        return [tuple(r) for r in self.db.execute(
+            "SELECT strongs, root, note FROM theme_term WHERE theme_id = ? ORDER BY strongs, root", (theme_id,))]
+
+    # --- the constellations (Word Atlas 0.10.112) ---------------------------
+    # Sets of two to five roots that gather in one stretch of text far more
+    # often than chance, found by the main program's atlas_sets.py and
+    # written with every figure the Constellations tab shows: support,
+    # places, lift, keyness, kind, in-order share, closed, folds, the closed
+    # set a smaller one folds under, span and the inclusio mark.  The Reader
+    # only selects rows; nothing is counted here.
+    SET_COLUMNS = ("set_id", "scope", "norm", "size", "roots", "words", "support", "stretches", "expected", "lift",
+                   "keyness", "kind", "in_order", "closed", "folds", "parent", "span", "inclusio")
+
+    def has_sets(self):
+        """True when the file holds constellation rows (a dataset packed by Word Atlas 0.10.112 or later)."""
+        if not self._has("word_sets", "word_set_members", "word_set_windows"):
+            return False
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(word_sets)")}
+        if "folds" not in cols:
+            return False                     # written by 0.10.110 or 0.10.111, before the Reader's columns
+        return self.db.execute("SELECT 1 FROM word_sets LIMIT 1").fetchone() is not None
+
+    def set_run(self, run_id=None):
+        """The run whose sets to show: run_id when it has sets, else the newest run that has them."""
+        if run_id is not None and self.db.execute("SELECT 1 FROM word_sets WHERE run_id IS ? LIMIT 1",
+                                                  (run_id,)).fetchone():
+            return run_id
+        row = self.db.execute("SELECT run_id FROM word_sets ORDER BY run_id DESC LIMIT 1").fetchone()
+        return row[0] if row else None
+
+    def set_scopes(self, run_id):
+        """The scopes with sets in a run: Old and New first, then the books in Bible order."""
+        scopes = [r[0] for r in self.db.execute("SELECT DISTINCT scope FROM word_sets WHERE run_id IS ?", (run_id,))]
+        order = {}
+        if self.has_kjv():
+            order = {r[0]: r[1] for r in self.db.execute("SELECT name, book_num FROM kjv_books")}
+        first = {"Old": -2, "New": -1}
+        return sorted(scopes, key=lambda s: (first.get(s, order.get(s, 999)), s))
+
+    def set_norms(self, run_id, scope):
+        """The norms a scope's sets were measured against: book first, then testament."""
+        norms = [r[0] for r in self.db.execute("SELECT DISTINCT norm FROM word_sets WHERE run_id IS ? AND scope = ?",
+                                               (run_id, scope))]
+        return sorted(norms, key=lambda n: (n != "book", n))
+
+    def sets(self, run_id, scope, norm, kind=None, size=None, closed_only=True, root=None, limit=500):
+        """
+        The sets of one scope and norm, strongest first, filtered as asked:
+        ([dict per set], how many the filter matched).  root is a Strong's
+        number (H1285) or a word (covenant), matched against the stored members.
+        """
+        where = ["run_id IS ?", "scope = ?", "norm = ?"]
+        args = [run_id, scope, norm]
+        if kind:
+            where.append("kind = ?")
+            args.append(kind)
+        if size:
+            where.append("size = ?")
+            args.append(int(size))
+        if closed_only:
+            where.append("closed = 1")
+        if root:
+            where.append("set_id IN (SELECT set_id FROM word_set_members WHERE upper(root) = upper(?) "
+                         "OR lower(word) = lower(?))")
+            args += [root.strip(), root.strip()]
+        sql = " AND ".join(where)
+        total = self.db.execute(f"SELECT COUNT(*) FROM word_sets WHERE {sql}", args).fetchone()[0]
+        cols = ", ".join(self.SET_COLUMNS)
+        rows = self.db.execute(f"SELECT {cols} FROM word_sets WHERE {sql} ORDER BY keyness DESC, set_id LIMIT ?",
+                               args + [limit]).fetchall()
+        return [dict(zip(self.SET_COLUMNS, r)) for r in rows], total
+
+    def set_windows(self, set_id):
+        """The places of one set: [(book, start chapter, start verse, end chapter, end verse)] in order."""
+        return [tuple(r) for r in self.db.execute(
+            "SELECT book, start_chapter, start_verse, end_chapter, end_verse FROM word_set_windows "
+            "WHERE set_id = ? ORDER BY rowid", (set_id,))]
+
+    def set_folded(self, set_id):
+        """The smaller sets folded under a closed set, largest first: [dict]."""
+        cols = ", ".join(self.SET_COLUMNS)
+        return [dict(zip(self.SET_COLUMNS, r)) for r in self.db.execute(
+            f"SELECT {cols} FROM word_sets WHERE parent = ? ORDER BY size DESC, keyness DESC", (set_id,))]
+
+    def scope_verses(self, scope):
+        """
+        The verses of a scope in Bible order, for the strip under the grid:
+        [(book, chapter, verse)].  A book's own verses, or every book of a
+        testament ('Old', 'New').  Empty without the King James text.
+        """
+        if not self.has_kjv():
+            return []
+        if scope in ("Old", "New"):
+            books = [r[0] for r in self.db.execute("SELECT book_num FROM kjv_books WHERE testament = ? "
+                                                   "ORDER BY book_num", (scope,))]
+        else:
+            num = self.book_number(scope)
+            books = [num] if num else []
+        names = self.book_names()
+        out = []
+        for num in books:
+            out.extend((names[num], c, v) for c, v in self.db.execute(
+                "SELECT chapter, verse FROM kjv_verses WHERE book_num = ? ORDER BY chapter, verse", (num,)))
+        return out
+
     # --- the schema, as words, for the Claude panel ----------------------------
     def schema_text(self):
         """The CREATE statements of the database, for a question-answerer that writes SQL."""

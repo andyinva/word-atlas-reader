@@ -85,6 +85,49 @@ Notes on the data:
   datasets the figures rest on: name, supplies, license, credit,
   adapted).  When an answer rests on a column such as listed or cited,
   give that source's credit line from this table with it.
+- In a dataset of Word Atlas 0.10.109 or later: theme, theme_verse,
+  theme_strip, theme_term, theme_problem (hand-made sets of verses with a
+  role for each verse, and each theme's strip of lift per chapter).
+- In a dataset of Word Atlas 0.10.112 or later: the constellations, sets
+  of two to five roots that gather in one stretch of text far more often
+  than chance.  word_sets has one row per set: scope (Old, New or a
+  book), norm ('book': measured against the book itself; 'testament':
+  the testament's own sets kept where the book holds them at least three
+  times as often), size, roots (Strong's numbers, space-separated), words,
+  support (ten-verse windows it occurs in), stretches (the separate
+  places), expected, lift, keyness (G2, the sort order), kind
+  ('constellation', 'frame' = three roots or more in one order within
+  twelve content words, 'phrase' = inside one formula), in_order, closed
+  (1 when no larger set has the same support; prefer closed = 1), folds,
+  parent (the closed set a smaller one folds under), span (chapters from
+  first place to last) and inclusio (1 when every place lies at the two
+  ends of the book).  word_set_members (set_id, root, word, position)
+  finds every set holding one root: JOIN on set_id with root = 'H1285'.
+  word_set_windows (set_id, book, start_chapter, start_verse,
+  end_chapter, end_verse) holds the places behind each set.  A book holds
+  more than half of its testament's closed sets of one size when it is
+  the home of that vocabulary: compare COUNT(*) of closed testament-norm
+  sets of the book with the testament scope's closed sets of that size.
+- In a dataset of Word Atlas 0.10.114 or later: the renderings, the
+  English translations aligned with the King James through its Strong's
+  tags.  renderings (root, word = the King James's commonest spelling,
+  translation, rendering, count, share, testament): how each translation
+  rendered each root, in its own spelling, a two-word rendering with a
+  space ("mercy seat"), with a row '(other)' for the remainder; only
+  roots with 10 or more tagged occurrences in the translation.
+  renderings_summary (root, translation, leading, share,
+  distinct_renderings, renderings_folded = different words with endings
+  and spellings folded, tagged, testament).  renderings_translations
+  (translation, title, year, share = the share of its content words the
+  alignment could tag: say it when quoting that translation, since below
+  60% its renderings are partial).  Order translations by year.
+  disagreement_verses (reference, book, chapter, verse, mean_distance,
+  excess = how much further apart than usual the translations stand on
+  the verse, the order of the cruxes; present, expected, missing = share
+  lacking, merged, merged_with, names = proper names set aside, far_a,
+  far_b, far_distance, outlier = the translation furthest from the rest,
+  unique_words).  The translations' text is not in the dataset; the
+  King James's is (kjv_verses).
 
 The tables most questions want, by sections.number (titles vary by book):
 - Book page: 1 signature words (keyness against the rest of the testament),
@@ -129,6 +172,11 @@ STARTER_QUESTIONS = [
     "Which chapters of 1 Kings echo other books most, and which books?",
     "Which New Testament book in this file leans most on the Septuagint's vocabulary?",
     "Which tables declined to measure something, and why?",
+    "Which constellations hold the root H1285 (covenant), in which books, strongest first?",
+    "Which sets of Revelation are flagged as an inclusio, and where do they gather?",
+    "Which books are the home of a vocabulary: holding more than half of their testament's closed sets of one size?",
+    "On which verses of Job do the English translators disagree most, and which translation stands furthest apart?",
+    "How has the root H3722 (kaphar) been rendered across the translations, in date order?",
 ]
 
 RUN_SQL_TOOL = {

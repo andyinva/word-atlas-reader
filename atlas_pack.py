@@ -23,6 +23,9 @@ WHAT THE PACK HOLDS (0.10.101)
         the heat rows  heat_strips, heat_windows, heat_spots
                        (written by every atlas_heat.py run;
                         python3 run_heat.py --all fills them for every book)
+        the sets       word_sets, word_set_members, word_set_windows: the
+                       constellations of atlas_sets.py (0.10.110), written
+                       with the canon run and kept with its run
         schema_notes   what every table and column holds, in plain words
         sources        the outside datasets the figures rest on, their
                        licenses and credit lines (0.10.103), refreshed in
@@ -34,6 +37,11 @@ WHAT THE PACK HOLDS (0.10.101)
         kjv_books, kjv_verses, kjv_tags
                        the King James text with its Strong's tags, from
                        atlas_source.db (atlas_source.py)
+        theme, theme_verse, theme_strip, theme_term, theme_problem
+                       the themes of atlas.db (0.10.109, atlas_themes.py):
+                       every verse with its role and text, and the strip's
+                       counts, lifts and colours per chapter, all worked
+                       out here, so the Reader only draws them
     No chart (SVG) and no other file goes into the pack.
 
 ONE RUN PER PACK (0.10.103)
@@ -45,7 +53,7 @@ the newest run's pages, sections, cells, refs and footers and drops the
 other runs' rows (results.db itself is not touched), then is compacted.
 --all-runs packs every run, for a reader who wants the comparison; the
 manifest names the runs left out ("runs_left_out").  The heat rows,
-passages, King James text and sources belong to no run and always go.
+passages, King James text, sources and themes belong to no run and always go.
 
 A results file without the schema_notes table was written before
 0.10.101 and lacks the heat tables, so the pack refuses it: write the
@@ -69,7 +77,16 @@ PROGRAM_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_PATH = os.path.join(PROGRAM_DIR, "reports", "results.db")
 METADATA_PATH = os.path.join(PROGRAM_DIR, "metadata.db")
 SOURCE_PATH = os.path.join(PROGRAM_DIR, "atlas_source.db")
+ATLAS_PATH = os.path.join(PROGRAM_DIR, "atlas.db")      # the themes are copied from it
 ATTRIBUTION_PATH = atlas_report.ATTRIBUTION_PATH
+
+# The constellations (atlas_sets.py) go into the pack whole.  If the set
+# tables ever pass about SET_CAP_MB, the pack is to carry only the closed
+# sets, the SET_CAP_ROWS highest by keyness per book, norm and size, and
+# say so in the manifest ("sets": {"capped": true, ...}).  Not built yet:
+# the tables are some 30 MB before compression, so every set goes
+SET_CAP_MB = 40
+SET_CAP_ROWS = 300
 
 # The tables the pack adds to its copy, and where they come from
 PACK_TABLES = ["passages", "passage_ranges", "kjv_books", "kjv_verses", "kjv_tags"]
@@ -147,7 +164,7 @@ def keep_one_run(db, run_id):
 
 def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=False,
          metadata_path=METADATA_PATH, source_path=SOURCE_PATH, attribution_path=ATTRIBUTION_PATH,
-         all_runs=False):
+         all_runs=False, atlas_path=ATLAS_PATH):
     """Write the archive and return its path."""
     if not os.path.exists(results_path):
         raise PackRefused(f"{results_path} not found: write it with  python3 atlas_query.py dossier all --results")
@@ -194,6 +211,8 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
             left_out = [r for r in runs if r["run_id"] in left_out]
             runs = runs[-1:]
         added = add_reader_tables(copy, metadata_path, source_path)
+        # The themes, fresh from atlas.db, as the passages are from metadata.db
+        n_themes = atlas_report.write_themes(copy, atlas_path)
         # The credits travel with the numbers: the sources table read
         # afresh from ATTRIBUTION.md into the copy, and described in its
         # schema_notes (an old-schema file packed for testing has none)
@@ -214,6 +233,9 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
         tables = {name: copy.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
                   for (name,) in copy.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")}
         copy.close()
+        # The sets carried, and whether they were capped (never yet: see SET_CAP_MB)
+        sets_note = {"rows": tables.get("word_sets", 0), "capped": False,
+                     "cap": f"above about {SET_CAP_MB} MB: the closed sets only, {SET_CAP_ROWS} per book, norm and size"}
         manifest = {
             "format": "Word Atlas dataset",
             "program_version": VERSION,
@@ -224,6 +246,7 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
             "runs_left_out": [{"run_id": r["run_id"], "version": r["version"], "started": r["started"]}
                               for r in left_out],
             "tables": tables,
+            "sets": sets_note,
         }
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             # The database and the manifest, and nothing else: no chart
@@ -234,7 +257,8 @@ def pack(results_path=RESULTS_PATH, out_path=None, note="", allow_old_schema=Fal
     after = os.path.getsize(out_path)
     heat = tables.get("heat_windows", 0)
     print(f"Packed {len(runs)} run(s), {sum(r['pages'] for r in runs)} pages, {heat:,} heat windows, "
-          f"{added['passages']} passages, {added['kjv_verses']:,} King James verses, {n_sources} sources: "
+          f"{added['passages']} passages, {added['kjv_verses']:,} King James verses, {n_sources} sources, "
+          f"{n_themes} theme{'s' if n_themes != 1 else ''}: "
           f"{before / 1e6:.1f} MB into {after / 1e6:.1f} MB at {out_path}")
     return out_path
 

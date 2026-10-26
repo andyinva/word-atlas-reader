@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.17. Andrew Hopkins, with Claude.
+Version 0.3.23. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -82,6 +82,15 @@ the atlas need be on the stick. An older dataset opens as it always
 did; its Heat tab says it has no strips and which file to open
 instead.
 
+**Themes (Word Atlas 0.10.109).** A dataset packed by 0.10.109 or later
+also carries the themes the main program had loaded: hand-made sets of
+verses such as land and inheritance (`theme`, `theme_verse`,
+`theme_strip`, `theme_term`, `theme_problem`). Every figure is stored
+ready to use: each verse with its role (core, borderline, excluded),
+reason and King James text, and for every chapter of the canon its
+counts, expected counts, lift per chapter and the colour to draw it in.
+The Themes tab reads them and works nothing out.
+
 ## What the window shows
 
 The **?** button at the top right (or F1) is help mode: the pointer
@@ -148,6 +157,41 @@ file. Without a key, "Copy as a prompt for claude.ai" puts the
 question, the schema and the open page on the clipboard, to paste into
 claude.ai or any assistant by hand.
 
+The **Themes** tab draws a theme's strip: one cell per chapter of the
+canon in canonical order, a line per book, in the colour the main
+program stored for it (light grey ordinary, red where the chapter holds
+more of the theme than its length would give it, blue less, grey
+outside the theme's home range), with a short tick where a section of a
+book begins. The box beside the theme switches between core verses and
+core plus borderline. Point at a cell for its stored figures (the
+counts, what was expected, the lift); click it to list that chapter's
+verses of the theme below, with their roles, reasons and text. A
+dataset packed before Word Atlas 0.10.109 has no themes, and the tab
+says so.
+
+The **Constellations** tab shows the sets of two to five words that
+gather in one stretch of text far more often than chance, as the main
+program's atlas_sets.py found them (a dataset packed by Word Atlas
+0.10.112 or later). The top row chooses the book, or the Old or New
+Testament (choosing a book's page on the left brings it up here too);
+the norm (against the book itself, or against its testament, where the
+words that run through a whole book stand out); the kind
+(constellations, frames, phrases); the size; and "Closed sets only",
+ticked at first, which hides the smaller sets that say nothing their
+larger set does not. The Root box keeps only the sets that hold one word:
+type covenant or H1285 for every set the word belongs to, strongest
+first. The grid lists words, size, kind, support (the ten-verse windows
+the set occurs in), places (the separate places), expected, lift,
+keyness (the sort order), span (chapters from the first place to the
+last), in order (the share of windows where the roots keep one order),
+inclusio (at both ends of the book) and folds; click a heading to sort,
+point at a row for its Strong's numbers. Choosing a set draws its strip
+along the book, red where it gathers, lists its places (click one for its
+King James text, with Strong's numbers when asked) and the smaller sets
+folded under it. Save as text keeps the grid with its filter at the head;
+Copy set copies the chosen set's line. Every figure is stored; the tab
+counts nothing.
+
 The **Heat** tab draws a book's heat strips from the rows the main
 program stored: one row per strip along the book, a cell per window of
 ten verses moving a verse at a time, red where the strip runs hot,
@@ -169,6 +213,17 @@ can be chosen or a reference typed (Genesis 23:7-16, Ruth 3, John
 1:1), with the Strong's numbers of the words when asked. Nothing on
 the tab is counted afresh: every figure is the one the main program
 wrote.
+
+A dataset packed by Word Atlas 0.10.114 or later also holds two strips
+of kind translations, shown under "every strip". **disagreement** is how
+far the English translations stand apart on the window's verses: the
+share of content words two translations do not share, matched through
+an alignment with the King James so a spelling is not a difference,
+proper names set aside, and each pair's usual distance taken off. Red
+marks where the Hebrew or Greek is obscure, or where the manuscripts
+differ. **missing** is the share of the translations lacking the verse;
+a verse a translation holds inside its neighbour is merged (a
+difference of verse division) and not counted.
 
 The **Tools** tab, the last one, holds what is wanted now and then,
 kept behind a tab so the window opens as plain as it always has. It
@@ -235,6 +290,13 @@ since is left alone and named. **Check the drive** reads every file
 back against the checksum written with it. The same drive can be
 made or updated from Word Atlas (its Workbench tab, Install menu),
 and `python3 atlas_usb.py build DRIVE` does it from a terminal.
+
+**Bible Search Lite.** The window's third box puts Bible Search Lite
+on the drive with its bibles.db (about 440 MB), found in
+`bible-search-lite` beside this folder or wherever Find... points. The
+installer then offers it too. Its subjects and settings stay on the
+computer the drive was made on. bibles.db holds translations still
+under copyright, so keep such a drive for your own computers.
 
 The installer was tried on Windows 11 on 2026-10-20 with the built
 Reader: it installed and ran without trouble.
@@ -371,6 +433,8 @@ be thought of as a small prepaid card, never as a secret.
 | `reader_questions.py` | the Questions list, grouped by subject |
 | `reader_tools.py` | the Tools tab: dataset details, a query of your own, this copy's tests and guest key, the zip |
 | `reader_credits.py` | the credits and licences page: the sources, and which of them a dataset draws on |
+| `reader_constellations.py` | the Constellations tab: the sets of words that travel together, from the stored rows |
+| `reader_themes.py` | the Themes tab: a theme's strip and verses, drawn from the stored rows |
 | `reader_heat.py` | the Heat tab: the strip chart, the spots, the King James text and the named passages |
 | `reader_update.py` | updates from GitHub: a newer Reader from the main branch, a newer dataset from the releases |
 | `atlas_usb.py` | the USB drive: finds drives, makes or updates the `WordAtlas` folder on one, fetches PyQt6 for it (the same file as the main program's) |
@@ -441,6 +505,39 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.23: the help notes of the two translations strips (disagreement and
+missing: what the distance is, names set aside, lacking and merged told
+apart), and the Claude panel told of the renderings tables and
+disagreement_verses, with two starter questions. atlas_report.py from
+Word Atlas 0.10.114.
+
+0.3.22: the Constellations tab (reader_constellations.py), from the
+word_sets tables of a dataset packed by Word Atlas 0.10.112 or later; the
+Claude panel told of those tables, with three starter questions; the
+sample remade with the constellations of the New Testament, Ezra, 1 Kings
+and Revelation and the King James text they need. atlas_report.py and
+atlas_pack.py from Word Atlas 0.10.112.
+
+0.3.21: every drop-down is sized by a few characters, not by its longest
+entry. A long past question to Claude had made the Ask Claude tab, and
+so the whole right side, wider than the window: the page list on the
+left shrank to a sliver and its divider could not be moved.
+
+0.3.20: the Themes tab (reader_themes.py): a theme's strip of the canon
+and its verses, from the theme tables of a dataset packed by Word Atlas
+0.10.109 or later; nothing is computed, every colour and figure is the
+one stored. atlas_pack.py and atlas_report.py from Word Atlas 0.10.109.
+
+0.3.19: the USB window's "Pack a fresh dataset first" packs with Word
+Atlas's atlas_pack.py (the newest run, the passages, the King James
+text, the sources), and is offered only when results.db holds a newer
+run (atlas_usb.py and atlas_usb_dialog.py from Word Atlas 0.10.108).
+
+0.3.18: the USB drive window can put Bible Search Lite and its bibles.db
+on the drive (atlas_usb.py, atlas_usb_dialog.py and usb_install.py from
+Word Atlas 0.10.107), and the drive's installer installs it beside the
+Reader and Word Atlas on Ubuntu or Windows 11.
 
 0.3.17: the window fits a smaller screen: the Run and Search boxes
 take the room the top row gives them instead of the width of their
