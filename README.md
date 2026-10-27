@@ -380,8 +380,9 @@ a newer dataset would gain. The Reader finds the newest by upload date,
 whatever the tag or the file is called.
 
 - `dataset-2026-10-20` (Word Atlas 0.10.103): `word_atlas_0.10.103_2026-10-20.wadb`,
-  128.1 MB; the heat strips of every book, the named passages and the
-  King James text with its Strong's tags (the Heat tab).
+  128.1 MB, canon run 2 (2,191 pages); the heat strips of every book,
+  the named passages and the King James text with its Strong's tags
+  (the Heat tab).
 - `dataset-0.10.117`: `word_atlas_0.10.117_2026-10-27.wadb`, 149.4 MB,
   canon run 7; Hebrew and Greek spellings beside every Strong's number,
   attested forms, constellations, the translations compared
