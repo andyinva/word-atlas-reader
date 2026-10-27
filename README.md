@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.23. Andrew Hopkins, with Claude.
+Version 0.3.25. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -213,6 +213,27 @@ can be chosen or a reference typed (Genesis 23:7-16, Ruth 3, John
 1:1), with the Strong's numbers of the words when asked. Nothing on
 the tab is counted afresh: every figure is the one the main program
 wrote.
+
+**The Hebrew and Greek.** View > Show Hebrew and Greek (on at first)
+prints the Hebrew or Greek word and its transliteration after every
+Strong's number, on every tab: hosts H6635 צָבָא tsava, grace G5485 χάρις
+charis. The transliteration says how the word sounds (kh as in Bach, ts
+as in cats; the divine name printed YHWH). Untick it for narrow tables.
+Typing a transliteration in the search box (khesed) finds the cells that
+hold its number. A dataset packed before Word Atlas 0.10.115 has no
+table of words, and its pages show the numbers alone.
+
+The transliteration is the word as it stands in the text, its prefixes
+removed: a word that always follows a vowel may begin with v, kh or f
+where a dictionary gives b, k or p (vohu for H922; a dictionary gives
+bohu), and the Hebrew letters beside it follow the spelling (בֹהוּ,
+without the dagesh). This is for nouns, adjectives and names, and
+differs from the dictionary form only by the dagesh or a plural; a verb
+keeps its dictionary form. The dictionary form is one hover away: point
+at a cell and its tooltip reads, for instance, "H922 בֹהוּ vohu
+(dictionary בֹּהוּ bohu)". The search matches both forms, so typing bohu
+or vohu finds H922. A dataset packed
+by Word Atlas 0.10.116 or earlier prints the dictionary form.
 
 A dataset packed by Word Atlas 0.10.114 or later also holds two strips
 of kind translations, shown under "every strip". **disagreement** is how
@@ -505,6 +526,27 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.25: the Hebrew and the transliteration beside a Strong's number are
+the form the text has (בֹהוּ vohu for H922, where a dictionary gives
+בֹּהוּ bohu), for nouns, adjectives and names, from the translit_text and
+script_text columns of a dataset packed by Word Atlas 0.10.117 or later;
+a cell's tooltip names the dictionary form ("H922 בֹהוּ vohu (dictionary
+בֹּהוּ bohu)"), and the search finds a number by either form. A page
+written before it printed the dictionary form and is put right when the
+box is ticked or unticked. atlas_report.py and atlas_pack.py from Word
+Atlas 0.10.117.
+
+0.3.24: View > Show Hebrew and Greek (on by default): the Hebrew or
+Greek word and its transliteration after every Strong's number (hosts
+H6635 צָבָא tsava) in every page cell, title, note and footer, the heat
+spots, the theme terms and the constellations grid, from the
+lexicon_forms table of a dataset packed by Word Atlas 0.10.115 or later;
+untick it for narrow tables. The search, and the constellations' word
+box, find a number by its transliteration (khesed finds H2617). The
+strip notes say the divine names stay in the distance and verses lost in
+import are not lacking. atlas_report.py and atlas_pack.py from Word
+Atlas 0.10.115.
 
 0.3.23: the help notes of the two translations strips (disagreement and
 missing: what the distance is, names set aside, lacking and merged told

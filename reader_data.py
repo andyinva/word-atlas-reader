@@ -229,6 +229,12 @@ class Dataset:
         self.db = sqlite3.connect(uri, uri=True, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self._check_schema()
+        # The Hebrew or Greek word and its transliteration beside every
+        # Strong's number (View > Show Hebrew and Greek); the window sets
+        # it from the reader's settings
+        self.show_original = True
+        self._forms = None
+        self._dictionary = {}
 
     # --- opening -----------------------------------------------------------
     @classmethod
@@ -363,9 +369,116 @@ class Dataset:
                 sec.add(row, row_refs)
             sec.footer = [f["text"] for f in self.db.execute(
                 "SELECT text FROM footers WHERE section_id = ? ORDER BY position", (s["section_id"],))]
+            # The original words shown or not, as the View menu says
+            if self.forms():
+                sec.title = self.originals(sec.title)
+                sec.note = self.originals(sec.note)
+                sec.rows = [[self.originals(v) for v in row] for row in sec.rows]
+                sec.footer = [self.originals(f) for f in sec.footer]
             report.sections.append(sec)
         report.list_sections = p["kind"] == "Section" and len(report.sections) > 6
+        if self.forms():
+            report.title = self.originals(report.title)
+            report.notes = [self.originals(n) for n in report.notes]
         return report
+
+    # --- the original word beside the number (Word Atlas 0.10.115) ---------
+    # A dataset packed by 0.10.115 or later holds lexicon_forms: every
+    # Strong's number with its Hebrew or Greek word and transliteration.
+    # Its pages already print them ("hosts H6635 צָבָא tsava"); with the
+    # box off they are taken out of every cell, title, note and footer,
+    # and in an older dataset's pages they are put in when the table is
+    # there.  The number itself always stays, so a search by number finds it.
+    NUMBER = re.compile(r"(?<![A-Za-z0-9])([HG]\d{1,5})(?![0-9])")
+
+    def forms(self):
+        """
+        {strongs: (script, printed form, translit_long)}; {} when the dataset has no lexicon_forms.  The
+        script and the form are the word as the text has it (בֹהוּ vohu), from a dataset packed by 0.10.117
+        or later, else the dictionary's; dictionary() gives the dictionary's (בֹּהוּ bohu) where they differ.
+        """
+        if self._forms is None:
+            self._forms, self._dictionary = {}, {}
+            if self._has("lexicon_forms"):
+                have = {r[1] for r in self.db.execute("PRAGMA table_info(lexicon_forms)")}
+                form = ("CASE WHEN translit_text != '' THEN translit_text ELSE translit END"
+                        if "translit_text" in have else "translit")
+                letters = ("CASE WHEN script_text != '' THEN script_text ELSE script END"
+                           if "script_text" in have else "script")
+                rows = self.db.execute(
+                    f"SELECT strongs, {letters}, {form}, translit_long, script, translit FROM lexicon_forms").fetchall()
+                self._forms = {r[0]: (r[1], r[2], r[3]) for r in rows}
+                self._dictionary = {r[0]: (r[4], r[5]) for r in rows if r[5] != r[2] or r[4] != r[1]}
+        return self._forms
+
+    def dictionary(self):
+        """{strongs: (dictionary script, dictionary form)} for the numbers whose printed letters or form differ (H922: בֹּהוּ bohu); {} when none."""
+        self.forms()
+        return self._dictionary
+
+    def form_note(self, text):
+        """
+        The hover for a cell: 'H922 בֹהוּ vohu (dictionary בֹּהוּ bohu)' for each Strong's number in the text
+        whose printed form differs from the dictionary's, joined by semicolons; '' when none does.
+        """
+        dictionary = self.dictionary()
+        if not dictionary or not isinstance(text, str) or not ("H" in text or "G" in text):
+            return ""
+        seen, notes = set(), []
+        for m in self.NUMBER.finditer(text):
+            number = m.group(1)
+            if number in seen or number not in dictionary:
+                continue
+            seen.add(number)
+            f, d = self._forms[number], dictionary[number]
+            notes.append(f"{number} {f[0]} {f[1]} (dictionary {d[0]} {d[1]})")
+        return "; ".join(notes)
+
+    def with_original(self, number):
+        """'H6635 צָבָא tsava' with the box on and a form for the number; the number alone otherwise."""
+        f = self.forms().get(number) if self.show_original else None
+        return f"{number} {f[0]} {f[1]}" if f else number
+
+    def originals(self, text):
+        """
+        A cell's text with the original word after each Strong's number
+        when the box is on, and without it when off, whichever way the
+        page was written.
+        """
+        forms = self.forms()
+        if not forms or not isinstance(text, str) or not text or not ("H" in text or "G" in text):
+            return text
+        out, pos = [], 0
+        for m in self.NUMBER.finditer(text):
+            if m.start() < pos:
+                continue
+            number = m.group(1)
+            f = forms.get(number)
+            out.append(text[pos:m.end()])
+            pos = m.end()
+            if not f:
+                continue
+            written = f" {f[0]} {f[1]}"
+            own = [written]
+            if number in self._dictionary:          # a page made before the form the text has printed the dictionary's
+                own.append(f" {self._dictionary[number][0]} {self._dictionary[number][1]}")
+            for candidate in own:
+                if text.startswith(candidate, pos):
+                    pos += len(candidate)           # the page's own, taken out here and put back below if wanted
+                    break
+            if self.show_original:
+                out.append(written)
+        out.append(text[pos:])
+        return "".join(out)
+
+    def numbers_for(self, text):
+        """The Strong's numbers whose transliteration (as printed, marked, or the dictionary's) is the text: 'khesed' gives ['H2617'], and both 'bohu' and 'vohu' give ['H922']."""
+        t = text.strip().lower()
+        if not t:
+            return []
+        dictionary = self.dictionary()
+        return [n for n, (_sc, tr, tl) in self.forms().items()
+                if tr.lower() == t or tl.lower() == t or dictionary.get(n, ("", ""))[1].lower() == t]
 
     # --- search --------------------------------------------------------------
     def search(self, run_id, text, limit=500):
@@ -377,12 +490,25 @@ class Dataset:
         """
         like = f"%{text}%"
         hits = []
+        # A transliteration finds its number too: 'khesed' finds the cells holding H2617
+        for number in self.numbers_for(text):
+            if number.lower() == text.lower():
+                continue
+            pattern = re.compile(rf"(?<![A-Za-z0-9]){number}(?![0-9])")
+            for r in self.db.execute(
+                    "SELECT p.page_id, p.title AS page, s.number, c.row, c.column, c.value "
+                    "FROM cells c JOIN sections s USING (section_id) JOIN pages p USING (page_id) "
+                    "WHERE p.run_id = ? AND c.value LIKE ? ORDER BY p.page_id, s.position, c.row, c.col LIMIT ?",
+                    (run_id, f"%{number}%", limit)):
+                if pattern.search(r["value"] or ""):
+                    hits.append((r["page_id"], r["page"], r["number"], r["row"], r["column"],
+                                 self.originals(r["value"])))
         for r in self.db.execute(
                 "SELECT p.page_id, p.title AS page, s.number, c.row, c.column, c.value "
                 "FROM cells c JOIN sections s USING (section_id) JOIN pages p USING (page_id) "
                 "WHERE p.run_id = ? AND c.value LIKE ? COLLATE NOCASE ORDER BY p.page_id, s.position, c.row, c.col "
                 "LIMIT ?", (run_id, like, limit)):
-            hits.append((r["page_id"], r["page"], r["number"], r["row"], r["column"], r["value"]))
+            hits.append((r["page_id"], r["page"], r["number"], r["row"], r["column"], self.originals(r["value"])))
         for r in self.db.execute(
                 "SELECT p.page_id, p.title AS page, s.number, s.title FROM sections s JOIN pages p USING (page_id) "
                 "WHERE p.run_id = ? AND s.title LIKE ? COLLATE NOCASE ORDER BY p.page_id, s.position", (run_id, like)):
@@ -391,8 +517,14 @@ class Dataset:
                 "SELECT p.page_id, p.title AS page, s.number, f.text FROM footers f JOIN sections s USING (section_id) "
                 "JOIN pages p USING (page_id) WHERE p.run_id = ? AND f.text LIKE ? COLLATE NOCASE "
                 "ORDER BY p.page_id, s.position, f.position", (run_id, like)):
-            hits.append((r["page_id"], r["page"], r["number"], -1, "footer", r["text"]))
-        return hits
+            hits.append((r["page_id"], r["page"], r["number"], -1, "footer", self.originals(r["text"])))
+        # One hit per cell, though a cell may hold both the word and its number
+        seen, unique = set(), []
+        for h in hits:
+            if h[:5] not in seen:
+                seen.add(h[:5])
+                unique.append(h)
+        return unique[:limit]
 
     # --- the heat strips, the passages and the King James text (0.10.101) -----
     # A dataset packed by Word Atlas 0.10.101 or later holds the heat
@@ -494,7 +626,10 @@ class Dataset:
         cur = self.db.execute(
             "SELECT * FROM heat_spots WHERE book = ? AND scale = ? AND norm = ? AND window_size = ? AND strip = ? "
             "AND line = ? ORDER BY hot DESC, start_chapter, start_verse", (book, scale, norm, size, strip, line))
-        return [dict(r) for r in cur]
+        spots = [dict(r) for r in cur]
+        for spot in spots:
+            spot["words"] = self.originals(spot["words"])     # the original words shown or not
+        return spots
 
     def passages(self):
         """The named passages: [(passage_id, name, description)]."""
@@ -592,7 +727,7 @@ class Dataset:
         """[(Strong's number, root, note)] of one theme's companion terms."""
         if not self._has("theme_term"):
             return []
-        return [tuple(r) for r in self.db.execute(
+        return [(self.with_original(r[0]) if r[0] else r[0], r[1], r[2]) for r in self.db.execute(
             "SELECT strongs, root, note FROM theme_term WHERE theme_id = ? ORDER BY strongs, root", (theme_id,))]
 
     # --- the constellations (Word Atlas 0.10.112) ---------------------------
@@ -654,15 +789,27 @@ class Dataset:
         if closed_only:
             where.append("closed = 1")
         if root:
-            where.append("set_id IN (SELECT set_id FROM word_set_members WHERE upper(root) = upper(?) "
+            # A Strong's number, an English word, or a transliteration (berit finds H1285)
+            numbers = self.numbers_for(root) or [root.strip()]
+            marks = ", ".join("upper(?)" for _n in numbers)
+            where.append(f"set_id IN (SELECT set_id FROM word_set_members WHERE upper(root) IN ({marks}) "
                          "OR lower(word) = lower(?))")
-            args += [root.strip(), root.strip()]
+            args += numbers + [root.strip()]
         sql = " AND ".join(where)
         total = self.db.execute(f"SELECT COUNT(*) FROM word_sets WHERE {sql}", args).fetchone()[0]
         cols = ", ".join(self.SET_COLUMNS)
         rows = self.db.execute(f"SELECT {cols} FROM word_sets WHERE {sql} ORDER BY keyness DESC, set_id LIMIT ?",
                                args + [limit]).fetchall()
-        return [dict(zip(self.SET_COLUMNS, r)) for r in rows], total
+        sets = [dict(zip(self.SET_COLUMNS, r)) for r in rows]
+        if self.show_original and self.forms():
+            # Each word with its number, Hebrew or Greek and transliteration:
+            # "rest H4496 מְנוּחָה menukha, written H3789 כָּתַב katav"
+            for st in sets:
+                words = st["words"].split(", ")
+                roots = st["roots"].split()
+                if len(words) == len(roots):
+                    st["words"] = ", ".join(f"{w} {self.with_original(r)}" for w, r in zip(words, roots))
+        return sets, total
 
     def set_windows(self, set_id):
         """The places of one set: [(book, start chapter, start verse, end chapter, end verse)] in order."""

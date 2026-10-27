@@ -14,6 +14,7 @@ file compiles).  Prints one line per test and a count at the end; exits
 
 import glob
 import os
+import re
 import py_compile
 import sqlite3
 import site
@@ -202,6 +203,86 @@ def _():
     head, body = atlas_results.q_diff(d.db, run, run)
     assert "0 cells changed" in head, head
     d.close()
+
+
+@test("the Hebrew and Greek beside a number: shown, hidden, put into an older page, found by transliteration")
+def _():
+    from reader_data import Dataset
+    d = Dataset.open(SAMPLE)
+    run = d.latest_run()
+    # A number the sample's pages print inside a label ("house H1004"), with a made-up form for it
+    row = d.db.execute("SELECT c.value, s.page_id FROM cells c JOIN sections s USING (section_id) "
+                       "WHERE c.value GLOB '* [HG][0-9]*' LIMIT 1").fetchone()
+    assert row, "no labelled number in the sample"
+    number = re.search(r"[HG]\d+", row[0]).group(0)
+    d._forms = {number: ("בַּיִת", "bayit", "bayit")}
+    d.show_original = True
+    shown = d.originals(row[0])
+    assert f"{number} בַּיִת bayit" in shown, shown
+    # Twice through changes nothing: a page that already prints it is not doubled
+    assert d.originals(shown) == shown, d.originals(shown)
+    d.show_original = False
+    assert d.originals(shown) == row[0], d.originals(shown)
+    # The whole page, with the box on, carries it in its cells
+    d.show_original = True
+    report = d.report(row[1])
+    cells = [v for sec in report.sections for r in sec.rows for v in r if isinstance(v, str)]
+    assert any("bayit" in v for v in cells), "the page's cells lack the transliteration"
+    # A transliteration finds the cells holding its number
+    hits = d.search(run, "bayit")
+    assert hits and all(number in h[5] for h in hits[:5]), hits[:3]
+    d.close()
+    return f"{number}, {len(hits)} hit(s) for 'bayit' "
+
+
+@test("the form the text has: printed, the dictionary form on hover, found by either, an older page put right")
+def _():
+    from reader_data import Dataset
+    # A copy of the sample with a lexicon_forms table as Word Atlas 0.10.117 writes it
+    d = Dataset.open(SAMPLE)
+    src = d.db_path
+    d.close()
+    path = os.path.join(TEST_HOME, "attested_sample.db")
+    shutil.copy2(src, path)
+    db = sqlite3.connect(path)
+    db.execute("DROP TABLE IF EXISTS lexicon_forms")
+    db.execute("CREATE TABLE lexicon_forms (strongs TEXT PRIMARY KEY, script TEXT NOT NULL, translit TEXT NOT NULL, "
+               "translit_long TEXT NOT NULL, language TEXT NOT NULL, source TEXT NOT NULL, "
+               "translit_text TEXT NOT NULL DEFAULT '', attested_share REAL, script_text TEXT NOT NULL DEFAULT '')")
+    db.executemany("INSERT INTO lexicon_forms VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        ("H922", "בֹּהוּ", "bohu", "bōhū", "Hebrew", "TAHOT", "vohu", 1.0, "בֹהוּ"),
+        ("H1004", "בַּיִת", "bayit", "bayit", "Hebrew", "TAHOT", "bayit", 0.96, "")])
+    db.commit()
+    db.close()
+    d = Dataset(path, path)
+    d.show_original = True
+    assert d.forms()["H922"][:2] == ("בֹהוּ", "vohu"), d.forms()["H922"]
+    assert d.dictionary() == {"H922": ("בֹּהוּ", "bohu")}, d.dictionary()
+    # The hover names the dictionary form for a number that differs, and says nothing for one that does not
+    assert d.form_note("tohu H8414 and void H922") == "H922 בֹהוּ vohu (dictionary בֹּהוּ bohu)", d.form_note("void H922")
+    assert d.form_note("house H1004") == "", d.form_note("house H1004")
+    assert d.form_note("nothing here") == ""
+    # The search finds the number by either form
+    assert d.numbers_for("vohu") == ["H922"] and d.numbers_for("bohu") == ["H922"], (d.numbers_for("vohu"), d.numbers_for("bohu"))
+    # A page written with the dictionary form (0.10.115, 0.10.116) is put right, not doubled
+    assert d.originals("void H922 בֹּהוּ bohu in Genesis") == "void H922 בֹהוּ vohu in Genesis", \
+        d.originals("void H922 בֹּהוּ bohu in Genesis")
+    assert d.originals("void H922 בֹהוּ vohu in Genesis") == "void H922 בֹהוּ vohu in Genesis"
+    d.show_original = False
+    assert d.originals("void H922 בֹּהוּ bohu in Genesis") == "void H922 in Genesis"
+    d.close()
+    # A dataset packed before 0.10.117 has no translit_text: the dictionary form prints and nothing differs
+    db = sqlite3.connect(path)
+    db.execute("DROP TABLE lexicon_forms")
+    db.execute("CREATE TABLE lexicon_forms (strongs TEXT PRIMARY KEY, script TEXT NOT NULL, translit TEXT NOT NULL, "
+               "translit_long TEXT NOT NULL, language TEXT NOT NULL, source TEXT NOT NULL)")
+    db.execute("INSERT INTO lexicon_forms VALUES ('H922', 'בֹּהוּ', 'bohu', 'bōhū', 'Hebrew', 'TAHOT')")
+    db.commit()
+    db.close()
+    d = Dataset(path, path)
+    assert d.forms()["H922"][1] == "bohu" and d.dictionary() == {} and d.form_note("H922") == ""
+    d.close()
+    return "H922 בֹהוּ vohu (בֹּהוּ bohu) "
 
 
 # --- the Claude tool -------------------------------------------------------------

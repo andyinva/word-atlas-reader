@@ -147,8 +147,34 @@ def add_reader_tables(db, metadata_path=METADATA_PATH, source_path=SOURCE_PATH):
             "ORDER BY verse_id, word_position"))
     finally:
         src.close()
+    # The Hebrew and Greek beside every Strong's number (atlas_translit.py,
+    # 0.10.115): refreshed from metadata.db's lexicon_forms when it has the
+    # table, so the Reader can show or hide them and search by them
+    try:
+        import atlas_translit
+    except ImportError:                     # a copy of this module without atlas_translit.py beside it
+        atlas_translit = None
+    forms = atlas_translit.read_forms(metadata_path) if atlas_translit else {}
+    if forms:
+        meta = read_only(metadata_path)
+        try:
+            # translit_text, attested_share and script_text (0.10.117) are missing from an older metadata.db:
+            # the printed form is then the dictionary form
+            have = {r[1] for r in meta.execute("PRAGMA table_info(lexicon_forms)")}
+            if "script_text" in have:
+                rows = meta.execute("SELECT strongs, script, translit, translit_long, language, source, "
+                                    "translit_text, attested_share, script_text FROM lexicon_forms").fetchall()
+            else:
+                rows = [r + (r[2], None, "") for r in meta.execute(
+                    "SELECT strongs, script, translit, translit_long, language, source FROM lexicon_forms")]
+        finally:
+            meta.close()
+        atlas_translit.write_forms(db, rows)
     db.commit()
-    return {t: db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in PACK_TABLES}
+    counts = {t: db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in PACK_TABLES}
+    if forms:
+        counts["lexicon_forms"] = len(forms)
+    return counts
 
 
 def keep_one_run(db, run_id):

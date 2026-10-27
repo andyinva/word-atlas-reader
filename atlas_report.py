@@ -30,6 +30,7 @@ Author: Andrew Hopkins (with Claude)
 
 import os
 import re
+import unicodedata
 import sqlite3
 import time
 
@@ -192,6 +193,15 @@ def plain_title(report, translation=None):
 # The text layout
 # ---------------------------------------------------------------------------
 
+def shown_len(text):
+    """
+    How many columns a cell takes on screen: its characters less the
+    combining marks, so a pointed Hebrew word (whose vowel points sit on
+    its letters) or an accented Greek one lines up with the rest.
+    """
+    return sum(1 for ch in text if not unicodedata.combining(ch))
+
+
 def render(report, atlas=None, timing=False):
     """
     Lay a Report out as plain text.  With the atlas given, the build
@@ -234,10 +244,10 @@ def render(report, atlas=None, timing=False):
             lines.append("")
             # Column widths: wide enough for the header and every value
             cells = [[str(v) for v in row] for row in sec.rows]
-            widths = [len(c) for c in sec.columns]
+            widths = [shown_len(c) for c in sec.columns]
             for row in cells:
                 for i, v in enumerate(row):
-                    widths[i] = max(widths[i], len(v))
+                    widths[i] = max(widths[i], shown_len(v))
             # Numbers and figure-like text right-aligned, words left-aligned
             numeric = [all(is_numeric_cell(row[i]) for row in sec.rows)
                        for i in range(len(sec.columns))]
@@ -245,7 +255,8 @@ def render(report, atlas=None, timing=False):
             def fmt(values):
                 out = []
                 for i, v in enumerate(values):
-                    out.append(v.rjust(widths[i]) if numeric[i] else v.ljust(widths[i]))
+                    pad = " " * max(0, widths[i] - shown_len(v))
+                    out.append(pad + v if numeric[i] else v + pad)
                 return "  ".join(out).rstrip()
 
             lines.append(fmt(sec.columns))
@@ -580,6 +591,8 @@ CREATE TABLE IF NOT EXISTS disagreement_verses (
     missing      REAL NOT NULL,           -- the share lacking the verse (merged ones not counted)
     merged       INTEGER NOT NULL,        -- translations holding the verse inside a neighbour (verse division)
     merged_with  TEXT NOT NULL,           -- each as translation>neighbour verse ("JPS>3:33"), space-separated
+    lost         INTEGER NOT NULL,        -- translations whose source lost the verse in import
+    lost_in      TEXT NOT NULL,           -- those translations, space-separated
     names        INTEGER NOT NULL,        -- the King James's proper names in the verse, set aside from the distance
     far_a        TEXT NOT NULL,           -- the two translations furthest apart on it
     far_b        TEXT NOT NULL,
@@ -591,6 +604,24 @@ CREATE INDEX IF NOT EXISTS idx_renderings_root ON renderings (root, translation)
 CREATE INDEX IF NOT EXISTS idx_renderings_word ON renderings (rendering);
 CREATE INDEX IF NOT EXISTS idx_renderings_summary ON renderings_summary (translation, share);
 CREATE INDEX IF NOT EXISTS idx_disagreement ON disagreement_verses (excess);
+"""
+
+# The Hebrew and Greek beside every Strong's number (atlas_translit.py,
+# 0.10.115; the form the text has, translit_text and attested_share, 0.10.117),
+# written by python3 atlas_translit.py into metadata.db and results.db and
+# refreshed in the packed copy
+LEXICON_FORMS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS lexicon_forms (
+    strongs       TEXT PRIMARY KEY,       -- the Strong's number, H6635
+    script        TEXT NOT NULL,          -- the word in Hebrew or Greek, pointed or accented, cantillation off
+    translit      TEXT NOT NULL,          -- the dictionary form transliterated: tsava (bohu)
+    translit_long TEXT NOT NULL,          -- with the long vowels marked: tsāvā
+    language      TEXT NOT NULL,          -- Hebrew, Aramaic or Greek
+    source        TEXT NOT NULL,          -- TAHOT, GNT, LXX or lexicon
+    translit_text TEXT NOT NULL DEFAULT '',  -- the word as it stands in the text, prefixes removed: vohu; what is printed
+    attested_share REAL,                  -- the share of the occurrences the printed form holds; blank where not counted
+    script_text   TEXT NOT NULL DEFAULT '' -- the Hebrew letters that follow translit_text: בֹהוּ (script: בֹּהוּ)
+);
 """
 
 SCHEMA_NOTES_SCHEMA = """
@@ -892,6 +923,84 @@ SCHEMA_NOTES = [
     ("renderings_translations", "pairs", "Its trusted pairings with the King James's words (both directions, two "
                                          "verses, no proper name with a common word).", "pairings"),
     ("renderings_translations", "made", "When it was aligned.", "date and time"),
+    ("brief", "", "Not a table: the shape of the JSON object atlas_brief.py --json writes (version 1), a "
+                  "contract the translation workbench reads.  brief is 'verse' or 'root'; version, made, read "
+                  "(the sources found) and missing (those not found) head every brief.", ""),
+    ("brief", "header", "Verse brief: reference, kjv (the King James text), original (language, text: TAHOT or "
+                        "the Greek New Testament), disagreement (excess, mean_distance, present, expected, missing, "
+                        "merged, lost, rank, ranked, top_share, furthest [a, b, distance], unique_words), or null.",
+     "object"),
+    ("brief", "words", "Verse brief: one object per original word in text order: position, strongs, label "
+                       "(number, script, transliteration), form and form_translit (the word as it stands in the "
+                       "verse, prefixes and suffixes included), form_translit_long, parsing (plain words), "
+                       "gloss_here, function_word (true: no further keys), elements [element, form, root, gloss], "
+                       "kjv_here [words]; and for a content word definition (lexicon_word, kjv_glosses, "
+                       "definition), in_verse, across, septuagint, senses, company, weight.", "list"),
+    ("brief", "in_verse", "A word's renderings in this verse: [translation, date, rendering [words], status "
+                          "('paired', 'no word paired', 'no such verse'), unpaired [words]], in date order; "
+                          "{function_word: true} when the King James renders the root here by a function word; "
+                          "null without the saved pairings.", "list"),
+    ("brief", "across", "A root's renderings across the Bible: in_table, live (true when counted afresh over "
+                        "the root's verses), by_translation [translation, date, tagged_share, leading, share, "
+                        "renderings (as printed), words (folded), tagged, others [[rendering, count]]], kjv "
+                        "[[rendering, count]]; null without the renderings tables.", "object"),
+    ("brief", "septuagint", "direction ('Hebrew to Greek' or 'Greek from Hebrew'), renderings [greek or hebrew, "
+                            "shown, share], here [greek, form, lemma, score]: the Greek word the Septuagint uses "
+                            "in this verse; null without the Hebrew to Greek map.", "object"),
+    ("brief", "senses", "glosses [[gloss, count]] (the tagged text's glosses as senses), distinct, here.",
+     "object"),
+    ("brief", "company", "book and bible [root, shown, count, pull]: the strongest neighbours; sets [words, kind, "
+                         "norm, keyness, size]: closed sets of the book holding the root whose places hold the "
+                         "verse.", "object"),
+    ("brief", "weight", "bible, books, book (counts), home (book, count, keyness), hapax, rare; priority (rank, "
+                        "of, score, difficulty) from the workbench's word_priority when its path is given.",
+     "object"),
+    ("brief", "echoes", "Verse brief: [partner, phrase, roots, here, there (texts with the shared words in « »), "
+                        "greek (confirmed true, false or null; run [lemmas])]; null without atlas.db.", "list"),
+    ("brief", "quotations", "Verse brief: [here, there, verdict, quotation (true for a quotation, false for a "
+                            "verse only read against it), both, septuagint_only, hebrew_only, votes, greek_nt, "
+                            "greek_lxx, hebrew] from the quotation study; null without its file.", "list"),
+    ("brief", "formulas", "Verse brief: [phrase, units, verses (how many hold it), others [references]].", "list"),
+    ("brief", "root", "Root brief: strongs, label, script, translit (the word as the text has it), "
+                      "translit_dictionary (the dictionary form, when it differs), definition, across, septuagint, senses, "
+                      "company and weight (measured in company_book, the root's home), workbench_glossary "
+                      "[sense, rendering, status, rule]; then verses [reference, kjv_word [words], workbench "
+                      "(text, status of its newest draft not rejected)] and verses_shown.", "object"),
+    ("lexicon_forms", "", "Every Strong's number with its Hebrew or Greek word and a transliteration that says "
+                          "how it sounds (atlas_translit.py), printed after the number on the pages: hosts "
+                          "H6635 צָבָא tsava. The word is printed as the text has it (translit_text); the "
+                          "dictionary form (translit) stays here and shows on hover in the Reader.", ""),
+    ("lexicon_forms", "strongs", "The Strong's number.", "Strong's number"),
+    ("lexicon_forms", "script", "The word in its own script: the tagged text's dictionary form (TAHOT, the Greek "
+                                "New Testament or the Septuagint) where the number occurs in it, Strong's "
+                                "dictionary's otherwise; pointed or accented, cantillation off.", "text"),
+    ("lexicon_forms", "translit", "The dictionary form transliterated: the SBL general purpose scheme with modern "
+                                  "pronunciation, made by rule from the pointed word (kh, ts, v without dagesh, "
+                                  "silent alef and ayin); the divine name YHWH. For a word beginning with bet, kaf "
+                                  "or pe it carries the dagesh and so begins with b, k or p (bohu for H922); see "
+                                  "translit_text for the form the text has.", "text"),
+    ("lexicon_forms", "translit_long", "The dictionary form with the long vowels marked (ā ē ī ō ū).", "text"),
+    ("lexicon_forms", "language", "Hebrew, Aramaic or Greek.", "text"),
+    ("lexicon_forms", "source", "Where the word was taken from: TAHOT, GNT, LXX or lexicon.", "text"),
+    ("lexicon_forms", "translit_text", "The word as it stands in the text, its prefixes removed; a word that "
+                                       "always follows a vowel may begin with v, kh or f where a dictionary gives "
+                                       "b, k or p. The dictionary form is one hover away (translit). Only for "
+                                       "nouns, adjectives and names, counted in TAHOT: the commonest form of the "
+                                       "word, or the dictionary form where it occurs and holds a fifth of the "
+                                       "contest; constructs and words whose suffix the tagging marks count as the "
+                                       "dictionary form; it differs from the dictionary form only by the dagesh or "
+                                       "a plural, and not when it would hold under a tenth of the word's words in "
+                                       "fewer than 20. The same as translit for a verb, a particle, Greek, the "
+                                       "divine name and a number the text lacks.", "text"),
+    ("lexicon_forms", "attested_share", "The share of the number's occurrences that the printed form holds "
+                                        "(constructs and suffixed stems counted with the dictionary form), so a "
+                                        "reader can see how settled the form is; a low share (panim, 2 percent) "
+                                        "means the text seldom has the word in that shape. Blank for Greek, a "
+                                        "verb, the divine name and a number with no word to compare.", "share 0 to 1"),
+    ("lexicon_forms", "script_text", "The Hebrew letters that follow translit_text: the commonest spelling of "
+                                     "the words that make the printed form (בֹהוּ without the dagesh beside vohu). "
+                                     "Empty where the printed form is the dictionary's, whose letters are script.",
+     "text"),
     ("disagreement_verses", "", "How far the English translations stand apart on each verse; sorted by "
                                 "excess it is the list of cruxes.", ""),
     ("disagreement_verses", "reference", "The verse, as the King James numbers it.", "reference"),
@@ -911,12 +1020,17 @@ SCHEMA_NOTES = [
     ("disagreement_verses", "present", "Translations having the verse.", "translations"),
     ("disagreement_verses", "expected", "Translations having the book (half its verses or more).", "translations"),
     ("disagreement_verses", "missing", "The share of the translations having the book that lack the verse; a "
-                                       "verse merged into a neighbour is not counted as lacking.", "share"),
+                                       "verse merged into a neighbour, or lost in import, is not counted as "
+                                       "lacking.", "share"),
     ("disagreement_verses", "merged", "Translations that hold the verse inside the verse before or after it "
                                       "(more than half of the King James verse's content words stand there): "
                                       "a difference of verse division, not an omission.", "translations"),
     ("disagreement_verses", "merged_with", "Each merged translation and the neighbour holding the verse, as "
                                            "translation>chapter:verse, separated by spaces.", "list"),
+    ("disagreement_verses", "lost", "Translations whose own numbering tradition has the verse but whose source "
+                                    "in atlas_source.db does not: lost in import, not absent from the edition, "
+                                    "and so neither lacking nor merged.", "translations"),
+    ("disagreement_verses", "lost_in", "Those translations, separated by spaces.", "list"),
     ("disagreement_verses", "names", "The King James's distinct proper names in the verse; names are set aside "
                                      "from the distance on the rule that bars them from the alignment.", "words"),
     ("disagreement_verses", "far_a", "One of the two translations furthest apart on the verse.", "abbreviation"),
@@ -1078,17 +1192,25 @@ def ensure_results_schema(db, attribution_path=ATTRIBUTION_PATH):
     if cols and "folds" not in cols:
         for table in ("word_set_members", "word_set_windows", "word_sets"):
             db.execute(f"DROP TABLE IF EXISTS {table}")
-    # disagreement_verses written before 0.10.114 lacks merged and names;
+    # disagreement_verses written before 0.10.115 lacks merged, names or lost;
     # atlas_renderings.py strips writes it whole, so it is made afresh
     cols = {r[1] for r in db.execute("PRAGMA table_info(disagreement_verses)")}
-    if cols and "names" not in cols:
+    if cols and "lost" not in cols:
         db.execute("DROP TABLE disagreement_verses")
     # renderings_summary written before 0.10.114 lacks renderings_folded;
     # atlas_renderings.py align writes it whole, so it is made afresh
     cols = {r[1] for r in db.execute("PRAGMA table_info(renderings_summary)")}
     if cols and "renderings_folded" not in cols:
         db.execute("DROP TABLE renderings_summary")
-    db.executescript(RESULTS_SCHEMA + HEAT_SCHEMA + SOURCES_SCHEMA + SETS_SCHEMA + RENDERINGS_SCHEMA
+    # lexicon_forms written before 0.10.117 lacks translit_text, attested_share and script_text; the columns are
+    # added empty (the printed form is then translit) until python3 atlas_translit.py fills them
+    cols = {r[1] for r in db.execute("PRAGMA table_info(lexicon_forms)")}
+    if cols and "translit_text" not in cols:
+        db.execute("ALTER TABLE lexicon_forms ADD COLUMN translit_text TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE lexicon_forms ADD COLUMN attested_share REAL")
+    if cols and "script_text" not in cols:
+        db.execute("ALTER TABLE lexicon_forms ADD COLUMN script_text TEXT NOT NULL DEFAULT ''")
+    db.executescript(RESULTS_SCHEMA + HEAT_SCHEMA + SOURCES_SCHEMA + SETS_SCHEMA + RENDERINGS_SCHEMA + LEXICON_FORMS_SCHEMA
                      + SCHEMA_NOTES_SCHEMA)
     db.executemany("INSERT OR REPLACE INTO schema_notes VALUES (?, ?, ?, ?)", SCHEMA_NOTES)
     db.commit()

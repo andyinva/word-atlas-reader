@@ -56,7 +56,7 @@ from reader_heat import HeatTab
 from reader_themes import ThemeTab
 from reader_constellations import ConstellationTab
 
-VERSION = "0.3.23"
+VERSION = "0.3.25"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -342,6 +342,17 @@ class ReaderWindow(QMainWindow):
             self._action(results, label, lambda checked=False, n=name: self.run_results(n))
         results.addSeparator()
         self._action(results, "&Diff two runs...", self.diff_runs)
+        # View: the Hebrew or Greek word and its transliteration beside
+        # every Strong's number, on by default; a reader without the
+        # languages may want the tables narrow
+        view = self.menuBar().addMenu("&View")
+        self.original_action = QAction("Show &Hebrew and Greek", self)
+        self.original_action.setCheckable(True)
+        self.original_action.setChecked(bool(self.settings.get("show_original", True)))
+        self.original_action.setStatusTip("Print the Hebrew or Greek word and its transliteration after every "
+                                          "Strong's number (hosts H6635 צָבָא tsava)")
+        self.original_action.toggled.connect(self.set_show_original)
+        view.addAction(self.original_action)
         help_menu = self.menuBar().addMenu("&Help")
         self._action(help_menu, "&Credits and licences", self.credits)
         self._action(help_menu, "&About", self.about)
@@ -832,6 +843,7 @@ class ReaderWindow(QMainWindow):
         if self.data is not None:
             self.data.close()
         self.data = data
+        data.show_original = bool(self.settings.get("show_original", True))
         self.heat_tab.set_dataset(data)
         self.theme_tab.set_dataset(data)
         self.sets_tab.set_dataset(data)
@@ -895,6 +907,22 @@ class ReaderWindow(QMainWindow):
         if item is None or item.data(0, Qt.ItemDataRole.UserRole) is None:
             return
         self.show_page(item.data(0, Qt.ItemDataRole.UserRole))
+
+    def set_show_original(self, on):
+        """View > Show Hebrew and Greek: remember the choice and show every tab again with it."""
+        self.settings["show_original"] = bool(on)
+        save_settings(self.settings)
+        if self.data is None:
+            return
+        self.data.show_original = bool(on)
+        if self.report is not None and getattr(self.report, "page_id", None) is not None:
+            index = self.table_box.currentIndex()
+            self.show_page(self.report.page_id)
+            if 0 <= index < self.table_box.count():
+                self.table_box.setCurrentIndex(index)
+        self.sets_tab.refresh()
+        self.heat_tab.fill_spots()
+        self.theme_tab.theme_changed(self.theme_tab.theme_box.currentIndex())
 
     def show_page(self, page_id, section_number=None):
         """Render the page, fill the section boxes, and jump to a section when asked."""
@@ -967,8 +995,17 @@ class ReaderWindow(QMainWindow):
         for r, row in enumerate(sec.rows):
             for c, value in enumerate(row):
                 item = CellItem(value, getattr(sec, "cell_numbers", {}).get((r, c)))
+                tip = []
                 if sec.refs[r]:
-                    item.setToolTip("; ".join(sec.refs[r][:20]) + (" ..." if len(sec.refs[r]) > 20 else ""))
+                    tip.append("; ".join(sec.refs[r][:20]) + (" ..." if len(sec.refs[r]) > 20 else ""))
+                # A word that stands in the text differently from the dictionary (vohu, not bohu) names
+                # its dictionary form here, one hover away
+                if self.data is not None and self.data.show_original:
+                    note = self.data.form_note(value)
+                    if note:
+                        tip.append(note)
+                if tip:
+                    item.setToolTip("\n".join(tip))
                 self.grid.setItem(r, c, item)
         self.grid.setSortingEnabled(True)
         self.table_footer.setPlainText("\n".join(sec.footer))

@@ -27,7 +27,8 @@ HELP = {
            "version, the build it used and when it started.  A dataset usually holds one run; a file "
            "that holds two can be compared with Results > Diff two runs.",
     "search": "Search every cell, section title and footer of the run for this text (case does not matter): "
-              "a word, a Strong's number such as H1005 or G2962, a phrase.  Press Enter or the button; "
+              "a word, a Strong's number such as H1005 or G2962, a transliteration such as khesed (which "
+              "finds the cells holding its number, H2617; the dictionary's form finds it too, so bohu and vohu both find H922), a phrase.  Press Enter or the button; "
               "the hits appear on the Search tab, and double-clicking a hit opens its page at that table.  "
               "The arrow at the right lists earlier searches.  The Search button turns green while the box "
               "holds something not yet searched.",
@@ -38,7 +39,16 @@ HELP = {
     "tabs": "The views of the chosen page: Page (as text), Table (one table as a grid), Search (hits), "
             "Results (the canon-wide questions from the Results menu), Ask Claude, Heat (a book's heat strips, their spots and the King James text), Themes (a hand-made set of verses as a strip of the canon), and Constellations (the sets of words that travel together).  Tools, the last "
             "tab, holds what is wanted now and then: the dataset's details, a query of your own, this "
-            "copy's tests and guest key, and passing the Reader on as a zip or on a USB drive.",
+            "copy's tests and guest key, and passing the Reader on as a zip or on a USB drive.  "
+            "View > Show Hebrew and Greek (on at first) prints the Hebrew or Greek word and its "
+            "transliteration after every Strong's number, on every tab (hosts H6635 צָבָא tsava); untick it "
+            "for narrow tables.  The transliteration says how the word sounds: kh as in Bach, ts as in "
+            "cats, the divine name printed YHWH.  It is the word as it stands in the text, its prefixes "
+            "removed; a word that always follows a vowel may begin with v, kh or f where a dictionary gives "
+            "b, k or p (vohu for H922, which a dictionary gives as bohu), and the Hebrew letters beside it follow "
+            "the spelling (בֹהוּ, without the dagesh).  This is for nouns, adjectives and names; a verb keeps "
+            "its dictionary form.  The dictionary form is one hover away: point at a cell and its tooltip "
+            "names it.",
     "sets_tab": "Constellations: sets of two to five words that gather in one stretch of text (a window of ten "
                 "verses moving a verse at a time) far more often than their separate rates predict, as the "
                 "main program's atlas_sets.py found them.  Every figure is stored; the Reader counts nothing.",
@@ -57,8 +67,8 @@ HELP = {
     "sets_closed": "Closed: no larger set has the same support.  A set that is not closed is the same words over "
                    "the same places with one fewer of them, so it says nothing new; it is listed under its "
                    "closed set below the grid.  Untick to see every set.",
-    "sets_root": "Keep only the sets that hold one word: type a King James word (covenant) or a Strong's number "
-                 "(H1285) and press Enter.  Every set a word belongs to, strongest first: the word association "
+    "sets_root": "Keep only the sets that hold one word: type a King James word (covenant), a Strong's number "
+                 "(H1285) or a transliteration (berit) and press Enter.  Every set a word belongs to, strongest first: the word association "
                  "view.  Empty the box for every set.",
     "sets_save": "Save the grid as text, in its present order, with the filter at the head.",
     "sets_copy": "Copy the chosen set's line, with every figure, to the clipboard.",
@@ -111,11 +121,13 @@ HELP = {
                   "window.  Two translations' distance on a verse is the share of their content words they do "
                   "not share, the words matched through an alignment with the King James, so a spelling is not "
                   "a difference; proper names are set aside, so a list of names spelled eleven ways is not a "
-                  "crux; and each pair's usual distance is taken off, so Wycliffe's Middle English does not "
+                  "crux, though the divine names stay (LORD, Jehovah, Yahweh and HaShem are a translator's "
+                  "choice); and each pair's usual distance is taken off, so Wycliffe's Middle English does not "
                   "light every verse.  Red marks where the Hebrew or Greek is obscure, or where the manuscripts "
                   "differ.  missing is the share of the translations lacking the verse.  A verse a "
                   "translation holds inside the verse before or after it is merged, a difference of verse "
-                  "division, and is told apart from a verse it lacks: only the lacking are counted.",
+                  "division, and is told apart from a verse it lacks, as is a verse its source lost in import: "
+                  "only the lacking are counted.",
     "heat_line": "Which spots to list: those past the report's own line (z 2 on the z scale), or past the near "
                  "line, three quarters of it (z 1.5), for near misses.",
     "heat_spots": "The chosen strip's spots: runs of windows past the line, joined when they share half a window, "
