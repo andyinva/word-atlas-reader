@@ -32,9 +32,10 @@ import re
 import signal
 import sys
 import textwrap
+import threading
 import time
 
-from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut, QTextCursor
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -51,12 +52,13 @@ from reader_help import HelpMode, column_help
 import reader_credits
 import reader_guest
 import reader_questions
+import reader_update
 from reader_tools import ToolsTab
 from reader_heat import HeatTab
 from reader_themes import ThemeTab
 from reader_constellations import ConstellationTab
 
-VERSION = "0.3.25"
+VERSION = "0.3.26"
 KINDS = ["Book", "Chapter", "Section", "Passage", "Word", "Kin", "Testament", "Compare"]
 HISTORY_MAX = 30        # how many earlier searches and questions a drop-down keeps
 # A button turns this green while the box beside it holds something
@@ -299,6 +301,15 @@ def fold_prose(text, prose, width):
     return "\n".join(out), source
 
 
+class GitHubNotice(QObject):
+    """
+    Carries the answer of the quiet start-up check from its thread to the
+    window.  A signal sent from another thread is queued and runs on the
+    main thread, where the status bar may be touched.
+    """
+    found = pyqtSignal(str)         # the name of a newer dataset waiting on GitHub
+
+
 class ReaderWindow(QMainWindow):
     """The Reader's one window: pages on the left, views on the right."""
 
@@ -317,10 +328,13 @@ class ReaderWindow(QMainWindow):
         self.fold_width = 0         # the width in characters the prose was last folded to
         self.worker = None          # the Claude question in flight, if any
         self.thread = None
+        self.github_notice = GitHubNotice()
+        self.github_notice.found.connect(self.show_github_notice)
         self._build_menus()
         self._build_body()
         self.statusBar().showMessage("Open a dataset: File > Open (a .wadb or a results.db)")
         QTimer.singleShot(0, lambda: self.open_at_start(path))
+        QTimer.singleShot(0, self.check_github_at_start)
 
     # --- building --------------------------------------------------------------
     def _build_menus(self):
@@ -790,6 +804,30 @@ class ReaderWindow(QMainWindow):
                 os.path.getmtime(newest) > os.path.getmtime(open_now) + 2:
             self.statusBar().showMessage(f"{self.data.describe()}.  Word Atlas has a newer dataset, "
                                          f"{os.path.basename(newest)}: Tools tab > Fetch the newest dataset")
+
+    def check_github_at_start(self):
+        """
+        Ask GitHub, off the main thread, whether a newer dataset has been
+        published, and say so on the status bar (see show_github_notice).
+        Nothing is downloaded.  The setting "check_dataset_at_start" (true
+        unless set false in settings.json) turns the question off, and a
+        failed or slow answer is silent.
+        """
+        if not self.settings.get("check_dataset_at_start", True):
+            return
+        settings, folder = dict(self.settings), library_dir()
+
+        def ask():
+            asset = reader_update.newer_dataset_waiting(settings, folder)
+            if asset:
+                self.github_notice.found.emit(asset["name"])
+        threading.Thread(target=ask, daemon=True).start()
+
+    def show_github_notice(self, name):
+        """The status bar line for a newer dataset on GitHub (runs on the main thread)."""
+        base = self.statusBar().currentMessage()
+        note = "A newer dataset is on GitHub: Tools > Check for a newer dataset"
+        self.statusBar().showMessage(f"{base}.  {note}" if base and not base.endswith(note) else note)
 
     def open_dialog(self):
         # Start where the last dataset was fetched from (the Reader's own

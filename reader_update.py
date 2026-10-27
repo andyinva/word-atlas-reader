@@ -315,15 +315,16 @@ def note_in_install(target_dir, written, version):
 # The datasets
 # ---------------------------------------------------------------------------
 
-def latest_dataset(settings=None):
+def latest_dataset(settings=None, timeout=TIMEOUT):
     """
     The newest .wadb attached to a release of the repository:
     {'name', 'size', 'url', 'published', 'release'}, or None when no
-    release carries one.
+    release carries one.  The timeout is in seconds (the start-up check
+    gives it only a few).
     """
     repo = repo_of(settings)
     try:
-        releases = json.loads(fetch(RELEASES_URL.format(repo=repo)).decode("utf-8"))
+        releases = json.loads(fetch(RELEASES_URL.format(repo=repo), timeout).decode("utf-8"))
     except ValueError:
         raise UpdateError("GitHub's list of releases could not be read") from None
     found = []
@@ -339,6 +340,29 @@ def latest_dataset(settings=None):
     if not found:
         return None
     return max(found, key=lambda a: (a["published"], a["name"]))
+
+
+# How long the quiet check at start waits for GitHub, in seconds
+START_CHECK_TIMEOUT = 5
+
+
+def newer_dataset_waiting(settings, folder, timeout=START_CHECK_TIMEOUT):
+    """
+    The release asset the quiet check at start should tell about, or None.
+    It is the newest dataset on GitHub when the folder does not hold it
+    (by name and size).  Every failure (no network, a slow answer, GitHub
+    refusing, a list that cannot be read, anything unexpected) gives None:
+    the check never raises and never shows a dialog.
+    """
+    try:
+        asset = latest_dataset(settings, timeout)
+        if asset is None or have_dataset(asset, folder):
+            return None
+        return asset
+    except UpdateError:
+        return None
+    except Exception:       # a quiet check must never trouble the start of the window
+        return None
 
 
 def have_dataset(asset, folder):

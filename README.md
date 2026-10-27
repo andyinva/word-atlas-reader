@@ -7,7 +7,7 @@ page the main program wrote is there, as text laid out by the same
 code the main program uses, as a grid that sorts by any column, and
 as rows that a search or a question can reach.
 
-Version 0.3.25. Andrew Hopkins, with Claude.
+Version 0.3.26. Andrew Hopkins, with Claude.
 
 ## What you need
 
@@ -23,7 +23,7 @@ the Reader (see Building below) needs neither.
 ## Running it
 
     python3 word_atlas_reader.py
-    python3 word_atlas_reader.py word_atlas_0.10.69_2026-10-05.wadb
+    python3 word_atlas_reader.py word_atlas_0.10.117_2026-10-27.wadb
 
 The Reader remembers the last file opened and opens it again on the
 next start. With no last file it opens the newest of its own datasets
@@ -356,14 +356,36 @@ Tools tab's "Updates from GitHub" group has:
   Reader keeps. While it downloads, the other Tools buttons wait and a
   Stop button ends the download.
 
+**A quiet notice at start.** When the Reader opens it asks the releases,
+on its own thread so the window opens at once, for the newest dataset
+and, when it does not hold that file, says on the status bar "A newer
+dataset is on GitHub: Tools > Check for a newer dataset". Nothing is
+downloaded without that press. It waits only a few seconds, and a failed
+or slow answer is silent: no dialog, no message. Turn the question off
+with `"check_dataset_at_start": false` in `settings.json` (a metered
+connection, or none); the default is true.
+
 **Publishing.** Push the Reader's code as usual; a new `VERSION` in
 `word_atlas_reader.py` is what tells installed copies an update is
 there. A dataset is too big for git, so it goes on a release: on
 GitHub open the repository, Releases, "Draft a new release", give it
-a tag such as `dataset-2026-10-20`, attach the `.wadb`, and Publish.
-With the `gh` tool:
+a tag of the form `dataset-<Word Atlas version>` (so the tag says which
+program made the pack), attach the `.wadb`, and Publish. With the `gh`
+tool:
 
-    gh release create dataset-2026-10-20 datasets/word_atlas_0.10.101_2026-10-20.wadb --repo andyinva/word-atlas-reader --title "Dataset 2026-10-20" --notes "Word Atlas 0.10.101"
+    gh release create dataset-0.10.117 datasets/word_atlas_0.10.117_2026-10-27.wadb --repo andyinva/word-atlas-reader --title "Dataset 0.10.117" --notes "Word Atlas 0.10.117, canon run 7"
+
+**Datasets published.** One line per release, so a reader can see what
+a newer dataset would gain. The Reader finds the newest by upload date,
+whatever the tag or the file is called.
+
+- `dataset-2026-10-20` (Word Atlas 0.10.103): `word_atlas_0.10.103_2026-10-20.wadb`,
+  128.1 MB; the heat strips of every book, the named passages and the
+  King James text with its Strong's tags (the Heat tab).
+- `dataset-0.10.117`: `word_atlas_0.10.117_2026-10-27.wadb`, 149.4 MB,
+  canon run 7; Hebrew and Greek spellings beside every Strong's number,
+  attested forms, constellations, the translations compared
+  (disagreement and missing strips).
 
 A copy can follow another repository: `"update_repo": "owner/name"`
 in its `settings.json`.
@@ -526,6 +548,15 @@ doing. (Linux only; on Windows, Task Manager's "Create dump file" is
 the nearest equivalent.)
 
 ## Versions
+
+0.3.26: a quiet notice at start when GitHub holds a newer dataset than
+the Reader keeps ("A newer dataset is on GitHub: Tools > Check for a
+newer dataset"), asked off the main thread with a few seconds' patience,
+silent when it fails; the setting `check_dataset_at_start` (default
+true) in settings.json turns it off. README: the examples name the
+0.10.117 pack and the tag form `dataset-<Word Atlas version>`, and a
+list of the datasets published. reader_update.py gains
+newer_dataset_waiting and a timeout on latest_dataset.
 
 0.3.25: the Hebrew and the transliteration beside a Strong's number are
 the form the text has (בֹהוּ vohu for H922, where a dictionary gives

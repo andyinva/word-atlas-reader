@@ -1269,6 +1269,21 @@ def _():
             path = reader_update.fetch_dataset(asset, tmp)
             assert got == ["u2"] and reader_update.have_dataset(asset, tmp)
             assert reader_update.older_datasets(tmp, path) == [os.path.join(tmp, "word_atlas_0.10.87.wadb")]
+        # The quiet check at start: silent on every failure, and it names the asset
+        # only when the folder does not hold it
+        def refuse(url, timeout=30):
+            raise reader_update.UpdateError("could not reach GitHub (offline)")
+        reader_update.fetch = refuse
+        assert reader_update.newer_dataset_waiting({}, "nowhere") is None
+        reader_update.fetch = lambda url, timeout=30: b"not json"
+        assert reader_update.newer_dataset_waiting({}, "nowhere") is None
+        reader_update.fetch = lambda url, timeout=30: json.dumps(releases).encode()
+        with tempfile.TemporaryDirectory() as kept:
+            found = reader_update.newer_dataset_waiting({}, kept)
+            assert found and found["name"] == "word_atlas_0.10.101.wadb", found
+            with open(os.path.join(kept, found["name"]), "wb") as f:
+                f.write(b"held")                # size 0 on the release: name alone decides
+            assert reader_update.newer_dataset_waiting({}, kept) is None
     finally:
         reader_update.fetch, reader_update.download = real_fetch, real_download
 

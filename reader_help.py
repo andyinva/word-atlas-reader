@@ -148,7 +148,11 @@ HELP = {
                             "itself and offers the source instead.",
     "tools_update_dataset": "Ask GitHub's releases of the repository for the newest dataset (.wadb).  When the "
                             "Reader does not have it, download it into the Reader's datasets folder and open it, "
-                            "and, if ticked, remove the older datasets it keeps.",
+                            "and, if ticked, remove the older datasets it keeps.  At start the Reader asks the "
+                            "same question quietly, on its own thread, and says on the status bar when a newer "
+                            "dataset is waiting; nothing is downloaded until this button is pressed.  Set "
+                            "\"check_dataset_at_start\": false in settings.json to stop the question (a metered "
+                            "or missing connection); a slow or failed answer is silent either way.",
     "tools_install": "Check the install this copy belongs to (a copy installed from a USB drive): every file "
                      "against the drive's checksum, the datasets, PyQt6, a window, the starters and shortcuts, "
                      "any error a program left when it failed to start, and what to do about each problem.  The "
